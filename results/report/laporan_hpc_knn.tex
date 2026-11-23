@@ -25,9 +25,11 @@
 
 \hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!60!black}
 
+\setlength{\emergencystretch}{3em}
+
 \definecolor{codebg}{gray}{0.96}
 \lstset{
-  basicstyle=\ttfamily\small,
+  basicstyle=\ttfamily\footnotesize,
   backgroundcolor=\color{codebg},
   breaklines=true,
   frame=single,
@@ -220,10 +222,14 @@ Gambar~\ref{fig:speedup} memvisualisasikan \textit{speedup} (skala logaritmik).
   symbolic x coords={openmp-1, openmp-4, cuda},
   xtick=data,
   xticklabels={OpenMP 1 thr, OpenMP 4 thr, CUDA (GEMM)},
-  nodes near coords, nodes near coords align={vertical},
+  nodes near coords, point meta=explicit symbolic,
   enlarge x limits=0.28, grid=major,
 ]
-\addplot coordinates {(openmp-1,5.77) (openmp-4,17.23) (cuda,244.55)};
+\addplot+[ybar] coordinates {
+  (openmp-1,5.77)   [5,77$\times$]
+  (openmp-4,17.23)  [17,23$\times$]
+  (cuda,244.55)     [244,55$\times$]
+};
 \end{axis}
 \end{tikzpicture}
 \caption{\textit{Speedup} relatif terhadap \textit{baseline} (skala logaritmik).}
@@ -379,11 +385,12 @@ berjalan.
 \subsection*{Saran Pengembangan}
 Implementasi hibrida MPI+CUDA (multi-GPU per simpul), eksplorasi presisi rendah
 (\textit{float16/bfloat16}, \textit{tensor core}), pembandingan terhadap pustaka
-industri (mis.\ FAISS-GPU), serta peningkatan korpus regulasi publik nyata untuk
-memperkuat validasi domain.
+industri (misalnya FAISS-GPU), serta penambahan korpus regulasi publik nyata
+untuk memperkuat validasi domain.
 
 % =====================================================================
 \appendix
+\newpage
 \section{Cara Reproduksi}
 % =====================================================================
 \begin{lstlisting}[language=bash]
@@ -393,17 +400,19 @@ cd engine && make bench bench_openmp bench_cuda mpi && cd ..
 bash scripts/build_binding.sh
 # 3) Korpus demo (SOP terkurasi + filler)
 bash scripts/build_corpus.py --filler 20000
-# 4) Evaluasi K1..K7 -> results/report/kpi_summary.json + REPORT.md
-python scripts/evaluate_all.py --n 100000 --d 384 --q 1000 --k 10 --reps 3 --mpi-n 500000
+# 4) Evaluasi K1..K7 + laporan
+python scripts/evaluate_all.py --n 100000 --d 384 --q 1000 \
+    --k 10 --reps 3 --mpi-n 500000
 python scripts/make_report.py
-# 5) Jalankan layanan + web
-bash scripts/run_service.sh          # http://0.0.0.0:8000
-cd web && npm install && npm run dev # http://localhost:5173
+# 5) Layanan + web
+bash scripts/run_service.sh          # :8000
+cd web && npm install && npm run dev # :5173
 \end{lstlisting}
 
 \noindent\textbf{Catatan lingkungan.} Untuk \textit{engine} CUDA di WSL2,
-gunakan \texttt{LD\_LIBRARY\_PATH=/usr/lib/wsl/lib} agar \texttt{libcuda.so}
-WSL terpilih. Penyedia LLM di Windows diakses dari WSL melalui IP host (bukan
-\texttt{127.0.0.1}); \texttt{run\_service.sh} menanganinya otomatis.
+gunakan variabel lingkungan \path{LD_LIBRARY_PATH=/usr/lib/wsl/lib} agar
+\texttt{libcuda.so} WSL terpilih. Penyedia LLM di Windows diakses dari WSL
+melalui IP host (bukan \texttt{127.0.0.1}); \texttt{run\_service.sh}
+menanganinya otomatis.
 
 \end{document}
