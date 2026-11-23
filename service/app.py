@@ -53,6 +53,14 @@ def _startup():
         print(f"[startup] embedding warmup {time.perf_counter()-t0:.2f}s, dim={_embedder.dim}")
     except Exception as e:  # pragma: no cover
         print(f"[startup] embedding warmup gagal: {e}")
+    # Warmup semua engine (terutama CUDA: inisialisasi context + H2D basis sekali).
+    try:
+        dummy = np.zeros((1, manager.dim), dtype=np.float32)
+        for eng in manager.engines():
+            manager.search(dummy, 5, eng)
+        print(f"[startup] engine warmup selesai untuk {manager.engines()}")
+    except Exception as e:  # pragma: no cover
+        print(f"[startup] engine warmup gagal: {e}")
 
 
 # ----------------------------- models -----------------------------
