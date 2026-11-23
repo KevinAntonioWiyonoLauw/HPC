@@ -1,137 +1,333 @@
 % =====================================================================
-%  Laporan Hasil Proyek HPC
+%  LAPORAN HASIL PROYEK HPC
 %  Akselerasi Exact k-Nearest Neighbors (k-NN) pada Asisten Tanya-Jawab
-%  Dokumen Kepatuhan Internal (SIKA) Berbasis RAG
-%  Compile: pdflatex laporan_hpc_knn.tex (2x untuk referensi)
+%  Dokumen Kepatuhan Internal (SIKA) Berbasis Retrieval-Augmented Generation
+%
+%  Kompilasi:  pdflatex laporan_hpc_knn.tex  (2x agar daftar isi terisi)
+%  Butuh file: ugm-logo.png  (satu folder dengan .tex ini)
 % =====================================================================
-\documentclass[11pt,a4paper]{article}
 
-\usepackage[utf8]{inputenc}
+\documentclass[12pt,a4paper,oneside]{report}
+
+% ---------- Paket dasar ----------
 \usepackage[T1]{fontenc}
-\usepackage[bahasa]{babel}
-\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[english,indonesian]{babel}
+\usepackage{mathptmx}              % Times New Roman
+\usepackage[a4paper,left=4cm,right=3cm,top=3cm,bottom=3cm]{geometry}
+\usepackage{graphicx}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
+\usepackage{longtable}
 \usepackage{tabularx}
 \usepackage{array}
-\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage{setspace}
 \usepackage{xcolor}
-\usepackage{listings}
-\usepackage{hyperref}
-\usepackage{pgfplots}
-\usepackage{float}
 \usepackage{caption}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{float}
+\usepackage{pgfplots}
+\usepackage[hidelinks]{hyperref}
+\usepackage{tocloft}
 \pgfplotsset{compat=1.17}
 
-\hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!60!black}
+% ---------- Daftar isi/tabel/gambar kompak ----------
+\renewcommand{\cftchapfont}{\normalfont\bfseries}
+\renewcommand{\cftchappagefont}{\normalfont\bfseries}
+\renewcommand{\cftsecfont}{\normalfont}
+\renewcommand{\cftsubsecfont}{\normalfont}
+\setlength{\cftbeforechapskip}{0.55em}
+\setlength{\cftbeforesecskip}{0.05em}
+\setlength{\cftbeforesubsecskip}{0em}
+\setlength{\cftbeforetabskip}{0.3em}
+\setlength{\cftbeforefigskip}{0.3em}
+\setlength{\cftchapindent}{0em}
+\setlength{\cftchapnumwidth}{3em}
+\setlength{\cftsecindent}{2em}
+\setlength{\cftsubsecindent}{4em}
+\setlength{\cfttabindent}{0em}
+\setlength{\cftfigindent}{0em}
+\renewcommand{\cfttoctitlefont}{\hfill\large\bfseries}
+\renewcommand{\cftaftertoctitle}{\hfill}
+\renewcommand{\cftlottitlefont}{\hfill\large\bfseries}
+\renewcommand{\cftafterlottitle}{\hfill}
+\renewcommand{\cftloftitlefont}{\hfill\large\bfseries}
+\renewcommand{\cftafterloftitle}{\hfill}
 
-\setlength{\emergencystretch}{3em}
+% ---------- Pengaturan umum ----------
+\onehalfspacing
+\setlength{\parindent}{1.5em}
+\setlength{\parskip}{0.25em}
+\renewcommand{\arraystretch}{1.3}
 
+% ---------- Format bab & subbab ----------
+\addto\captionsindonesian{%
+  \renewcommand{\chaptername}{BAB}%
+  \renewcommand{\contentsname}{DAFTAR ISI}%
+  \renewcommand{\listtablename}{DAFTAR TABEL}%
+  \renewcommand{\listfigurename}{DAFTAR GAMBAR}%
+}
+\renewcommand{\chaptername}{BAB}
+\renewcommand{\thechapter}{\Roman{chapter}}
+\renewcommand{\thesection}{\arabic{chapter}.\arabic{section}}
+\renewcommand{\thesubsection}{\thesection.\arabic{subsection}}
+\renewcommand{\thesubsubsection}{\thesubsection.\arabic{subsubsection}}
+\renewcommand{\thetable}{\arabic{chapter}.\arabic{table}}
+\renewcommand{\thefigure}{\arabic{chapter}.\arabic{figure}}
+\renewcommand{\theequation}{\arabic{chapter}.\arabic{equation}}
+
+\titleformat{\chapter}[display]
+  {\normalfont\large\bfseries\centering}
+  {\MakeUppercase{\chaptername}\ \thechapter}
+  {0.5em}
+  {\large\MakeUppercase}
+\titlespacing*{\chapter}{0pt}{-1.5em}{1.5em}
+
+\titleformat{\section}{\normalfont\large\bfseries}{\thesection}{0.8em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries}{\thesubsection}{0.7em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.6em}{}
+
+% ---------- Header / footer ----------
+\setlength{\headheight}{14pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\itshape Laporan Proyek HPC}
+\fancyhead[R]{\small\itshape Exact k-NN Vector Search (SIKA)}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancypagestyle{plain}{%
+  \fancyhf{}%
+  \fancyfoot[C]{\thepage}%
+  \renewcommand{\headrulewidth}{0pt}%
+}
+
+% ---------- Caption ----------
+\captionsetup{font=small,labelfont=bf,justification=centering}
+
+% ---------- Listing gaya ----------
 \definecolor{codebg}{gray}{0.96}
-\lstset{
-  basicstyle=\ttfamily\footnotesize,
+\lstdefinestyle{cppstyle}{
   backgroundcolor=\color{codebg},
-  breaklines=true,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\bfseries,
+  commentstyle=\itshape,
+  numbers=left,
+  numberstyle=\tiny,
   frame=single,
-  columns=fullflexible,
-  keepspaces=true,
-  showstringspaces=false
+  rulecolor=\color{gray!50},
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=4,
+  captionpos=b
 }
 
-\newcommand{\pass}{\textcolor{green!45!black}{\textbf{PASS}}}
-\newcommand{\fail}{\textcolor{red!70!black}{\textbf{FAIL}}}
+% ---------- Perintah bantu ----------
+\newcommand{\keyword}[1]{\textbf{\textit{#1}}}
+\newcommand{\vect}[1]{\mathbf{#1}}
+\newcommand{\pass}{\textcolor{green!45!black}{PASS}}
 
-\title{\textbf{Laporan Hasil Proyek Arsitektur dan Infrastruktur Berkinerja Tinggi}\\[4pt]
-\large Akselerasi \textit{Exact} $k$-Nearest Neighbors (k-NN) pada Asisten Tanya-Jawab\\
-Dokumen Kepatuhan Internal Berbasis \textit{Retrieval-Augmented Generation} (SIKA)}
-\author{
-Axelle Chandra (24/533796/PA/22614)\\
-Indratanaya Budiman (24/534784/PA/22683)\\
-Kevin Antonio Wiyono Lauw (24/535917/PA/22736)\\
-Ayasha Rahmadinni (24/545462/PA/23178)
-}
-\date{\today}
+% toleransi pemenggalan kata (banyak istilah teknis panjang)
+\setlength{\emergencystretch}{3em}
+\tolerance=2000
+\hbadness=10000
 
+% =====================================================================
 \begin{document}
-\maketitle
-
-% ---------------------------------------------------------------------
-\begin{abstract}
-\noindent
-Laporan ini menyajikan hasil implementasi dan evaluasi akselerasi algoritma
-\textit{Exact} $k$-Nearest Neighbors (k-NN) untuk tahap \textit{retrieval} pada
-sistem \textit{Retrieval-Augmented Generation} (RAG), dikemas dalam aplikasi
-demonstrasi \textbf{SIKA} (Sistem Informasi Kepatuhan Internal). Empat varian
-\textit{engine} dikembangkan di atas satu kontrak antarmuka yang identik:
-(1) \textit{baseline} CPU \textit{single-thread}; (2) OpenMP (paralelisasi blok
-kueri + SIMD + \textit{cache tiling}); (3) CUDA berbasis GEMM (cuBLAS) dengan
-penyempurnaan (\textit{refine}) jarak eksak; dan (4) MPI (\textit{sharding} +
-\textit{Gather}). Seluruh kriteria kelulusan K1--K7 yang ditetapkan
-\textit{sebelum} pengukuran berhasil dipenuhi, termasuk \textit{speedup} OpenMP
-$17{,}23\times$, \textit{speedup} CUDA $244{,}55\times$, latensi p95 per-kueri
-CUDA $2{,}59$~ms, dan \textit{recall} 100\% yang identik dengan \textit{baseline}.
-\end{abstract}
-
-\tableofcontents
-\newpage
+\sloppy
+\pagenumbering{roman}
 
 % =====================================================================
-\section{Ringkasan Eksekutif}
+%  HALAMAN SAMPUL
 % =====================================================================
-Proyek ini menargetkan latensi \textit{retrieval} p95 $\leq 100$~ms pada
-pencarian \textit{exact} $k$-NN atas basis vektor hingga $N = 500.000$, dimensi
-$D = 384$, dengan \textit{recall} 100\%. Optimasi dilakukan berlapis mengikuti
-hierarki perangkat keras. Tabel~\ref{tab:kpi} merangkum capaian terhadap
-kriteria kelulusan (Tabel 4.2 proposal).
-
-\begin{table}[H]
+\begin{titlepage}
 \centering
-\caption{Ringkasan kriteria kelulusan optimasi (Tabel 4.2). Pengukuran pada
-$N=100.000$, $D=384$, $Q=1.000$, $k=10$, median 3 ulangan; K7 pada $N=500.000$.}
-\label{tab:kpi}
-\begin{tabularx}{\linewidth}{@{}c l c c l@{}}
-\toprule
-\textbf{Kode} & \textbf{Kriteria} & \textbf{Ambang} & \textbf{Hasil} & \textbf{Status}\\
-\midrule
-K1 & \textit{Speedup} OpenMP 4 thread vs \textit{baseline} & $\geq 2{,}5\times$ & $17{,}23\times$ & \pass\\
-K2 & \textit{Speedup} CUDA vs \textit{baseline} (batch) & $\geq 20\times$ & $244{,}55\times$ & \pass\\
-K3 & Latensi p95 CUDA per-kueri & $\leq 100$~ms & $2{,}59$~ms & \pass\\
-K4 & Latensi p95 sistem \texttt{POST /search} & $\leq 100$~ms & $\approx 11{,}7$~ms & \pass\\
-K5 & \textit{Recall} top-$k$ tiap varian vs \textit{baseline} & $=100\%$ & $100\%$ & \pass\\
-K6 & \textit{Parallel efficiency} OpenMP 4 thread & $\geq 62{,}5\%$ & $74{,}6\%$ & \pass\\
-K7 & Jejak memori per proses MPI ($P=4$) & $\geq 3\times$ kecil & $3{,}70\times$ & \pass\\
-\bottomrule
-\end{tabularx}
-\end{table}
+\singlespacing
+\thispagestyle{empty}
+\pagenumbering{alph}
+\setlength{\parskip}{0pt}
+
+\vspace*{0.2cm}
+
+{\large\bfseries LAPORAN HASIL PROYEK\\[0.15em]
+MATA KULIAH ARSITEKTUR DAN INFRASTRUKTUR BERKINERJA TINGGI\par}
+
+\vspace{0.7cm}
+
+\rule{\linewidth}{1pt}\par
+\vspace{0.4em}
+{\Large\bfseries AKSELERASI \MakeUppercase{Exact} $k$-NEAREST NEIGHBORS ($k$-NN)\\[0.2em]
+PADA ASISTEN TANYA-JAWAB DOKUMEN KEPATUHAN INTERNAL\\[0.2em]
+BERBASIS RETRIEVAL-AUGMENTED GENERATION (SIKA)\par}
+\vspace{0.4em}
+\rule{\linewidth}{1pt}\par
+
+\vspace{0.6cm}
+\includegraphics[width=6cm]{ugm-logo.png}\par
+
+\vspace{0.6cm}
+{\normalsize\bfseries Disusun oleh:\par}
+\vspace{0.2em}
+
+{\normalsize
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{l l}
+\textbf{Nama} & \textbf{NIM} \\[0.2em]
+Axelle Chandra            & 24/533796/PA/22614 \\
+Indratanaya Budiman       & 24/534784/PA/22683 \\
+Kevin Antonio Wiyono Lauw & 24/535917/PA/22736 \\
+Ayasha Rahmadinni         & 24/545462/PA/23178 \\
+\end{tabular}\par}
+
+\vfill
+
+\vspace{0.3cm}
+
+\end{titlepage}
 
 % =====================================================================
-\section{Pendahuluan}
+%  DAFTAR ISI / TABEL / GAMBAR
 % =====================================================================
-\subsection{Latar Belakang}
-Sistem RAG menjawab pertanyaan dengan terlebih dahulu mengambil (\textit{retrieve})
-potongan dokumen paling relevan dari basis pengetahuan, lalu menyusun jawaban
-berbasis konteks tersebut. Pada domain kepatuhan internal, \textit{retrieval}
-tidak boleh melewatkan pasal pengecualian atau ambang batas nominal; karena itu
-dipilih \textit{Exact} $k$-NN (bukan \textit{Approximate Nearest Neighbor}) agar
-\textit{recall} tetap 100\%.
+\pagenumbering{roman}
+\setcounter{page}{1}
+\pagestyle{plain}
 
-Namun, komputasi \textit{exact} $k$-NN sekuensial berkompleksitas
-$\mathcal{O}(Q \times N \times D)$ dan sangat lambat pada skala ratusan ribu
-vektor. Dua \textit{bottleneck} utama: (1) \emph{memory-bound} --- matriks basis
-($N \times D \times 4$ byte) jauh melampaui LLC 12~MB sehingga terjadi
-\emph{cache thrashing}; dan (2) \emph{compute-bound} --- aritmatika belum
-memanfaatkan paralelisasi data (SIMD) maupun GPU secara optimal.
+\begingroup
+\setlength{\parskip}{0pt}
+\renewcommand{\addvspace}[1]{}
+\tableofcontents
+\endgroup
 
-\subsection{Tujuan}
-Mengimplementasikan dan mengevaluasi akselerasi \textit{exact} k-NN berlapis
-(OpenMP, CUDA, MPI), memetakan \textit{bottleneck} secara kuantitatif, serta
-mengintegrasikannya ke dalam aplikasi SIKA yang dapat didemonstrasikan langsung
-dengan \textit{engine} yang dapat ditukar saat berjalan.
+\clearpage
+\begingroup
+\setlength{\parskip}{0pt}
+\listoftables
+\endgroup
+
+\clearpage
+\begingroup
+\setlength{\parskip}{0pt}
+\listoffigures
+\endgroup
+
+\clearpage
+\pagestyle{fancy}
+\pagenumbering{arabic}
+\setcounter{page}{1}
 
 % =====================================================================
-\section{Metodologi}
+\chapter{PENDAHULUAN}
 % =====================================================================
-\subsection{Lingkungan Pengujian}
+
+\section{Latar Belakang Masalah}
+
+Sistem \keyword{Retrieval-Augmented Generation} (RAG) menjawab pertanyaan dengan lebih dulu mengambil potongan dokumen yang paling relevan dari sebuah basis pengetahuan, lalu menyusun jawaban berdasarkan konteks tersebut. Pada domain kepatuhan internal, proses pengambilan ini tidak boleh melewatkan pasal pengecualian atau ambang batas nominal. Karena alasan itu, proyek ini memilih \keyword{Exact} $k$-Nearest Neighbors ($k$-NN) dan bukan \keyword{Approximate Nearest Neighbor} (ANN), agar \keyword{recall} tetap 100\%.
+
+Perhitungan \keyword{exact} $k$-NN secara sekuensial pada CPU memiliki kompleksitas waktu $\mathcal{O}(Q \times N \times D)$, dengan $Q$ jumlah kueri, $N$ jumlah vektor basis data, dan $D$ jumlah dimensi. Pada skala ratusan ribu vektor, pendekatan sekuensial menjadi lambat dan tidak memenuhi standar latensi \keyword{real-time}. Ada dua \keyword{bottleneck} utama pada arsitektur komputer:
+
+\begin{enumerate}[label=(\arabic*),leftmargin=2.2em]
+  \item \keyword{Memory-bound}, yaitu matriks basis data berukuran ratusan megabita tidak muat di \keyword{L3 Cache} CPU sehingga terjadi \keyword{cache thrashing}.
+  \item \keyword{Compute-bound}, yaitu instruksi aritmatika belum memanfaatkan paralelisasi data (SIMD) secara optimal.
+\end{enumerate}
+
+Proyek ini menjawab kedua masalah tersebut dengan pendekatan \keyword{High-Performance Computing} (HPC). Implementasi dan analisis komparatif dilakukan untuk algoritma \keyword{Exact} $k$-NN menggunakan paralelisasi \keyword{shared-memory} (OpenMP), akselerasi GPU (CUDA), dan distribusi memori antar-simpul (MPI). Optimasi diarahkan pada satu permasalahan operasional yang konkret, yaitu lamanya penelusuran dokumen kepatuhan internal pada aplikasi \keyword{SIKA} (Sistem Informasi Kepatuhan Internal).
+
+\section{Rumusan Masalah}
+
+Berdasarkan latar belakang di atas, rumusan masalah dalam proyek ini adalah:
+\begin{enumerate}[leftmargin=2em]
+  \item Bagaimana karakteristik \keyword{bottleneck} performa (latensi, \keyword{cache miss rate}, dan \keyword{instruction throughput}) dari algoritma \keyword{Exact} $k$-NN sekuensial pada data berdimensi tinggi?
+  \item Bagaimana memetakan dan mengoptimasi operasi jarak vektor memanfaatkan hierarki memori (\keyword{loop tiling} di CPU dan \keyword{shared memory} di GPU)?
+  \item Bagaimana merancang distribusi data (\keyword{sharding}) dan komunikasi antar-simpul dengan MPI untuk memproses data yang melebihi kapasitas memori satu proses?
+  \item Seberapa besar peningkatan performa (\keyword{speedup}) dan efisiensi skalabilitas yang dihasilkan OpenMP, CUDA, dan MPI dibandingkan \keyword{baseline}?
+  \item Sejauh mana optimasi tersebut membawa \keyword{retrieval} pada SIKA memenuhi target latensi p95 $\leq 100$~ms, dan bagaimana wujud sistem yang mendemonstrasikannya?
+\end{enumerate}
+
+\section{Tujuan Proyek}
+
+Tujuan dari pelaksanaan proyek ini adalah:
+\begin{enumerate}[leftmargin=2em]
+  \item Mengembangkan dan memprofil program \keyword{baseline} sekuensial di CPU untuk mengukur latensi komputasi dan masalah \keyword{cache}.
+  \item Mengimplementasikan paralelisasi \keyword{loop} dan vektorisasi (SIMD) dengan OpenMP.
+  \item Mengembangkan \keyword{kernel} CUDA berbasis GEMM dengan \keyword{shared memory} dan \keyword{parallel reduction}.
+  \item Menerapkan pola \keyword{sharding} dan \keyword{Gather} dengan MPI untuk menurunkan jejak memori per proses.
+  \item Melakukan \keyword{benchmark} dan analisis metrik kinerja untuk membuktikan efektivitas setiap level arsitektur, dengan kriteria kelulusan yang ditetapkan sebelum pengukuran.
+  \item Mengintegrasikan \keyword{engine} hasil optimasi ke dalam aplikasi SIKA yang dapat didemonstrasikan langsung, dengan \keyword{engine} yang dapat ditukar saat berjalan.
+\end{enumerate}
+
+\section{Batasan Masalah}
+
+\begin{enumerate}[leftmargin=2em]
+  \item Algoritma difokuskan pada \keyword{Brute-Force / Exact Search} $k$-NN dengan \keyword{Euclidean Distance}. Proyek tidak mencakup ANN (HNSW, FAISS) dan tidak membandingkan akurasi \keyword{Exact} terhadap ANN.
+  \item Tipe data vektor adalah \keyword{single-precision floating-point} (\texttt{float32}).
+  \item Dataset berupa matriks vektor berdimensi statis ($D=384$ atau $768$), sintetis maupun subset dataset publik, dengan jumlah vektor maksimum $500.000$.
+  \item Skenario aplikatif diwujudkan sebagai purwarupa \keyword{single-node}. Aspek non-fungsional sistem produksi (autentikasi, ketersediaan tinggi, replikasi) di luar cakupan.
+  \item Kualitas model LLM dan model \keyword{embedding} tidak dievaluasi dan diperlakukan sebagai komponen tetap.
+  \item Evaluasi performa dilakukan pada lingkungan spesifik yang tersedia, didefinisikan pada Bab III.
+\end{enumerate}
+
+% =====================================================================
+\chapter{TINJAUAN PUSTAKA DAN LANDASAN TEORI}
+% =====================================================================
+
+\section{Konsep \texorpdfstring{$k$}{k}-Nearest Neighbors pada Vector Database}
+
+Sistem RAG mengandalkan pencarian informasi semantik melalui representasi vektor berdimensi tinggi (\keyword{embeddings}). Untuk menemukan dokumen yang relevan dengan kueri, sistem menjalankan algoritma $k$-NN untuk mencari $k$ vektor dalam basis data yang jaraknya paling dekat dengan vektor kueri. Untuk vektor kueri $\vect{q}$ dan vektor dokumen $\vect{p}$ yang berdimensi $D$, kuadrat jarak Euclidean dirumuskan sebagai:
+\begin{equation}
+d^{2}(\vect{q}, \vect{p}) = \sum_{i=1}^{D} (q_i - p_i)^{2}
+\end{equation}
+
+Pada komputasi berbasis matriks dan GPU, persamaan di atas diekspansi secara aljabar menjadi:
+\begin{equation}
+d^{2}(\vect{q}, \vect{p}) = \sum_{i=1}^{D} q_i^{2} + \sum_{i=1}^{D} p_i^{2} - 2 \sum_{i=1}^{D} q_i p_i
+\end{equation}
+atau dalam notasi aljabar linear:
+\begin{equation}
+d^{2}(\vect{q}, \vect{p}) = \lVert \vect{q} \rVert^{2} + \lVert \vect{p} \rVert^{2} - 2(\vect{q} \cdot \vect{p})
+\end{equation}
+
+Suku $2(\vect{q} \cdot \vect{p})$ dapat dipetakan menjadi operasi \keyword{General Matrix-Matrix Multiplication} (GEMM). Operasi ini sangat teroptimasi pada \keyword{hardware}, baik di CPU maupun GPU. Perlu dicatat bahwa ekspansi ini rentan \keyword{catastrophic cancellation} pada \keyword{float32} karena nilai $\lVert \vect{q} \rVert^{2} + \lVert \vect{p} \rVert^{2}$ jauh lebih besar daripada $d^{2}$. Bagian III menjelaskan cara proyek ini menjaga ketepatan hasil.
+
+\section{Hierarki Memori dan \texorpdfstring{\textit{Cache Locality}}{Cache Locality}}
+
+Performa algoritma tidak hanya bergantung pada jumlah instruksi aritmatika, tetapi juga pada kecepatan suplai data ke unit pemrosesan. Arsitektur komputer modern memakai hierarki memori:
+\begin{enumerate}[leftmargin=2em]
+  \item \keyword{L1 dan L2 Cache}, berukuran puluhan hingga ratusan Kilobita, bersifat \keyword{private} untuk setiap \keyword{core}, dengan latensi beberapa siklus \keyword{clock}.
+  \item \keyword{L3 Cache (Last Level Cache)}, berukuran belasan hingga puluhan Megabita dan dipakai bersama seluruh \keyword{core} dalam satu cip.
+  \item \keyword{Main Memory} (RAM), berkapasitas besar namun berlatensi ratusan siklus \keyword{clock}.
+\end{enumerate}
+
+Pada implementasi sekuensial yang naif, membaca matriks basis data berulang kali menyebabkan data di L3 Cache terusir sebelum sempat dipakai ulang. Fenomena ini disebut \keyword{Cache Thrashing}. Optimasi HPC memanfaatkan prinsip \keyword{Locality of Reference}: \keyword{temporal locality} melalui \keyword{Loop Tiling} (cache blocking), dan \keyword{spatial locality} melalui pembacaan data yang berdekatan secara sekuensial agar sejalan dengan \keyword{Cache Line}.
+
+\section{Hukum Amdahl}
+
+Dalam komputasi paralel, \keyword{speedup} dibatasi oleh porsi program yang berjalan sekuensial. Hukum Amdahl merumuskan batas ini:
+\begin{equation}
+S = \frac{1}{(1 - P) + \frac{P}{N}}
+\end{equation}
+dengan $S$ \keyword{speedup} teoretis, $P$ proporsi algoritma yang dapat diparalelkan, $1-P$ proporsi sekuensial, dan $N$ jumlah \keyword{thread}. Hukum ini menjadi dasar bahwa penambahan \keyword{core} tidak akan memberi peningkatan linier tanpa batas selama \keyword{overhead} sinkronisasi dan bagian sekuensial (misalnya pengurutan hasil akhir) masih dominan.
+
+\section{Paradigma Pemrosesan Paralel}
+
+\subsection{OpenMP (Shared-Memory Multiprocessing)}
+OpenMP adalah API untuk \keyword{shared-memory multiprocessing} di C/C++. Beban \keyword{loop} dibagi ke beberapa \keyword{thread}. Arahan SIMD (\keyword{Single Instruction, Multiple Data}) memungkinkan kompilator memakai unit vektor perangkat keras (misalnya AVX2) untuk memproses beberapa elemen dimensi dalam satu siklus.
+
+\subsection{CUDA (GPU Acceleration)}
+CUDA adalah platform komputasi paralel dari NVIDIA. GPU diarsiteki dengan ribuan \keyword{core} kecil untuk eksekusi masif dengan \keyword{throughput} tinggi. Pada optimasi $k$-NN, pemanfaatan \keyword{library} aljabar linear (cuBLAS) dan \keyword{shared memory} menjadi kunci untuk meminimalkan ketergantungan \keyword{bandwidth} memori global.
+
+\subsection{MPI (Distributed-Memory Message Passing)}
+Ketika ukuran matriks melampaui kapasitas RAM satu \keyword{node}, paradigma terdistribusi diperlukan. MPI adalah standar untuk membagi komputasi lintas proses yang berkomunikasi melalui jaringan. Pola yang dipakai adalah \keyword{broadcast} untuk data kecil (vektor kueri) dan \keyword{Gather} untuk mengumpulkan \keyword{top-k} parsial ke proses utama untuk pengurutan final.
+
+% =====================================================================
+\chapter{METODOLOGI DAN SKENARIO IMPLEMENTASI}
+% =====================================================================
+
+\section{Lingkungan Pengujian}
+
+Pengujian dilakukan pada lingkungan \keyword{single-node} agar dapat direproduksi dengan perangkat yang tersedia.
+
 \begin{table}[H]
 \centering
 \caption{Spesifikasi lingkungan pengujian.}
@@ -142,75 +338,101 @@ dengan \textit{engine} yang dapat ditukar saat berjalan.
 \midrule
 CPU & Intel Core i3-12100F, 4 core fisik / 8 thread, AVX2; L3 Cache 12~MB\\
 Memori & RAM 16~GB DDR4 (WSL 8~GB)\\
-GPU & NVIDIA GTX 1650, 4~GB VRAM, \textit{compute capability} 7.5\\
-Sistem Operasi & Windows 11 + WSL2 Ubuntu 24.04 LTS\\
+GPU & NVIDIA GTX 1650, 4~GB VRAM, \keyword{compute capability} 7.5\\
+Sistem Operasi & Windows 11 dengan WSL2 Ubuntu 24.04 LTS\\
 Kompilator & GCC 13.3 (\texttt{-O3 -march=native -fopenmp})\\
-CUDA & NVIDIA CUDA Toolkit 12.0 + cuBLAS\\
-MPI & OpenMPI 4.x (1--4 proses, \textit{oversubscribe}, satu mesin)\\
+CUDA & NVIDIA CUDA Toolkit 12.0 dengan cuBLAS\\
+MPI & OpenMPI 4.x, 1--4 proses pada satu mesin (\keyword{oversubscribe})\\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\subsection{Desain Engine}
-Seluruh varian mengekspos satu tanda tangan fungsi identik
-(\texttt{KnnSearchFn}) sehingga perbandingan mencerminkan perbedaan
-implementasi, bukan protokol pemanggilan.
+Konfigurasi CPU dengan 4 \keyword{core} fisik dan LLC 12~MB membuat \keyword{bottleneck} memori bukan asumsi teoretis. Matriks basis terbesar ($500.000 \times 384 \times 4$ byte $\approx 768$~MB) melampaui LLC lebih dari 60 kali, sehingga selisih performa sebelum dan sesudah optimasi akan terlihat jelas pada perangkat yang tidak istimewa.
+
+\section{Desain Algoritma Sekuensial (Baseline)}
+
+Program \keyword{baseline} adalah CPU \keyword{single-thread} tanpa optimasi. Alur kerjanya: memuat matriks kueri dan basis ke memori, menjalankan dua \keyword{nested loop} (luar atas kueri, dalam atas basis), menghitung kuadrat jarak Euclidean tiap pasangan, lalu menyimpan \keyword{top-k} dengan \keyword{bounded max-heap} berukuran $k$. Pengukuran memakai pustaka \texttt{chrono} beresolusi tinggi. Selain mode \keyword{batch}, program menyediakan mode \keyword{single-query} yang mencatat waktu tiap kueri untuk menghasilkan nilai p50, p95, dan p99.
+
+\section{Skenario Optimasi 1: Shared-Memory (OpenMP)}
+
+Pendekatan OpenMP diterapkan dalam tiga tahap:
+\begin{enumerate}[leftmargin=2em]
+  \item \keyword{Loop-level parallelism}: \texttt{\#pragma omp parallel for schedule(dynamic)} pada blok kueri, agar beban terbagi dan ketidakseimbangan berkurang.
+  \item \keyword{Vektorisasi SIMD}: \texttt{\#pragma omp simd} pada \keyword{loop} dimensi agar unit vektor (AVX) memproses beberapa elemen sekaligus.
+  \item \keyword{Cache blocking} (\keyword{loop tiling}): baris basis dibaca sekali lalu dipakai ulang untuk sekumpulan kueri, sehingga jumlah pembacaan basis turun dari $Q$ kali menjadi $Q/\text{blok}$ kali.
+\end{enumerate}
+
+\section{Skenario Optimasi 2: GPU Acceleration (CUDA)}
+
+Implementasi CUDA menggeser \keyword{nested loop} ke perangkat grafis:
+\begin{enumerate}[leftmargin=2em]
+  \item \keyword{Pemetaan memori}: matriks basis dipindahkan dari \keyword{host} ke VRAM sekali saat \keyword{engine} diaktifkan, bukan per kueri.
+  \item \keyword{Konversi GEMM}: komputasi $\vect{q} \cdot \vect{p}$ dipetakan menjadi perkalian matriks $\mathbf{Q} \cdot \mathbf{B}^{\top}$ melalui cuBLAS.
+  \item \keyword{Penyempurnaan eksak dan reduksi}: kandidat teratas hasil GEMM dihitung ulang dengan rumus eksak $\sum (q_i - p_i)^2$ untuk menjamin hasil identik \keyword{baseline}, lalu \keyword{top-k} dipilih lewat reduksi di \keyword{shared memory}.
+\end{enumerate}
+
+Langkah ketiga diperlukan karena ekspansi GEMM kehilangan presisi pada \keyword{float32}. Tanpa penyempurnaan, urutan tetangga dapat bergeser dari hasil \keyword{baseline}. Dengan penyempurnaan, kriteria kesamaan himpunan hasil (K5) terpenuhi tanpa mengorbankan kecepatan GEMM.
+
+\section{Skenario Optimasi 3: Distributed-Memory (MPI)}
+
+MPI diperlakukan sebagai eksperimen skalabilitas dan pembuktian jalur \keyword{out-of-core}, bukan sebagai \keyword{engine} yang ditukar pada demonstrasi antarmuka. Pada satu mesin dengan 4 \keyword{core}, empat proses MPI bersaing memperebutkan \keyword{core} dan \keyword{bandwidth} memori yang sama, sehingga \keyword{speedup} MPI tidak diharapkan melampaui OpenMP. Yang diukur adalah penurunan jejak memori per proses dan biaya komunikasi. Langkahnya:
+\begin{enumerate}[leftmargin=2em]
+  \item \keyword{Sharding}: indeks basis dibagi menjadi blok kontigu, dan tiap proses hanya memuat $\lceil N/P \rceil$ baris.
+  \item \keyword{Broadcast}: proses utama menyiarkan matriks kueri yang berukuran kecil ke seluruh \keyword{worker} dengan \texttt{MPI\_Bcast}.
+  \item \keyword{Gather dan merge}: tiap proses menghitung \keyword{top-k} lokal, lalu \texttt{MPI\_Gather} mengumpulkan kandidat ke proses utama untuk penggabungan eksak.
+
+\end{enumerate}
+
+% =====================================================================
+\chapter{HASIL DAN EVALUASI}
+% =====================================================================
+
+\section{Parameter dan Kriteria Kelulusan}
+
+Seluruh nilai pada bab ini diukur pada $N=100.000$, $D=384$, $Q=1.000$, $k=10$, dengan median dari 3 ulangan. Kriteria K7 diukur terpisah pada $N=500.000$. Kriteria kelulusan ditetapkan sebelum pengukuran agar tidak disesuaikan setelah hasil diketahui.
 
 \begin{table}[H]
 \centering
-\caption{Varian \textit{engine} dan teknik optimasi.}
-\label{tab:engine}
-\begin{tabularx}{\linewidth}{@{}l X@{}}
+\caption{Kriteria kelulusan optimasi dan capaian.}
+\label{tab:kpi}
+{\small
+\begin{tabularx}{\linewidth}{@{}c X c c l@{}}
 \toprule
-\textbf{Engine} & \textbf{Teknik}\\
+\textbf{Kode} & \textbf{Kriteria} & \textbf{Ambang} & \textbf{Hasil} & \textbf{Status}\\
 \midrule
-\texttt{baseline} & CPU \textit{single-thread}, $d^2=\sum (q_i-p_i)^2$ langsung\\
-\texttt{openmp} & Paralelisasi blok kueri (\texttt{schedule(dynamic)}) + \texttt{\#pragma omp simd} + \textit{cache tiling} (blok $Q=64$)\\
-\texttt{cuda} & \texttt{cublasSgemm} menghitung $\mathbf{Q}\cdot\mathbf{B}^{\top}$ (\textit{shortlist}) + \textbf{refine eksak} $\sum(q_i-p_i)^2$ pada kandidat + reduksi top-$k$ di \textit{shared memory}\\
-\texttt{mpi} & \textit{Sharding} kontigu (tiap proses memuat hanya $\lceil N/P \rceil$ baris) + \texttt{MPI\_Gather} top-$k$ lokal $\rightarrow$ \textit{merge} eksak di rank 0\\
+K1 & \keyword{Speedup} OpenMP 4 \keyword{thread} vs \keyword{baseline} & $\geq 2{,}5\times$ & $17{,}23\times$ & \pass\\
+K2 & \keyword{Speedup} CUDA vs \keyword{baseline} (batch) & $\geq 20\times$ & $244{,}55\times$ & \pass\\
+K3 & Latensi p95 CUDA per-kueri & $\leq 100$~ms & $2{,}59$~ms & \pass\\
+K4 & Latensi p95 sistem \texttt{POST /search} & $\leq 100$~ms & $\approx 11{,}7$~ms & \pass\\
+K5 & \keyword{Recall} top-$k$ tiap varian vs \keyword{baseline} & $=100\%$ & $100\%$ & \pass\\
+K6 & \keyword{Parallel efficiency} OpenMP 4 \keyword{thread} & $\geq 62{,}5\%$ & $74{,}6\%$ & \pass\\
+K7 & Jejak memori per proses MPI ($P=4$) & $\geq 3\times$ kecil & $3{,}70\times$ & \pass\\
 \bottomrule
 \end{tabularx}
+}
 \end{table}
 
-\paragraph{Catatan presisi CUDA.} Ekspansi aljabar
-$d^2=\lVert q\rVert^2+\lVert p\rVert^2-2(q\cdot p)$ memungkinkan operasi GEMM
-yang sangat cepat, tetapi rentan \emph{catastrophic cancellation} pada
-\textit{float32} (nilai $\lVert q\rVert^2+\lVert p\rVert^2$ besar, sedangkan
-$d^2$ kecil). Untuk menjamin kriteria K5 (hasil identik \textit{baseline}),
-kernel GEMM hanya dipakai sebagai \textit{shortlist} cepat; kandidat teratas
-kemudian dihitung ulang dengan rumus eksak $\sum(q_i-p_i)^2$. Pendekatan ini
-mempertahankan kecepatan GEMM sekaligus akurasi 100\%.
+\section{Throughput dan Speedup (Mode Batch)}
 
-\subsection{Dataset}
-Data sintetis berdistribusi seragam dengan \textit{seed} tetap (reproduksibel),
-\textit{float32}, $D=384$; $N \in \{50.000, 100.000, 250.000, 500.000\}$.
-Korpus demonstrasi memakai SOP internal terkurasi (jawaban pasti) diperkaya
-potongan referensi hingga skala realistis.
-
-% =====================================================================
-\section{Hasil Evaluasi}
-% =====================================================================
-\subsection{Throughput dan \textit{Speedup} (mode batch)}
-Tabel~\ref{tab:batch} menyajikan waktu eksekusi batch ($Q=1.000$) dan
-\textit{speedup} relatif terhadap \textit{baseline}.
+Tabel~\ref{tab:batch} menyajikan waktu eksekusi batch dan \keyword{speedup} relatif terhadap \keyword{baseline}.
 
 \begin{table}[H]
 \centering
-\caption{Hasil mode \textit{batch}, $N=100.000$, $D=384$, $Q=1.000$, $k=10$.}
+\caption{Hasil mode batch, $N=100.000$, $D=384$, $Q=1.000$, $k=10$.}
 \label{tab:batch}
 \begin{tabular}{@{}l r r r r@{}}
 \toprule
-\textbf{Engine} & \textbf{Waktu (ms)} & \textbf{QPS} & \textbf{Speedup vs base} & \textbf{\textit{Recall}}\\
+\textbf{Engine} & \textbf{Waktu (ms)} & \textbf{QPS} & \textbf{Speedup} & \keyword{Recall}\\
 \midrule
-\texttt{baseline} (1 thr) & 18.837,71 & 53,09 & $1{,}00\times$ & 100\%\\
-\texttt{openmp} (1 thr)   & 3.262,45  & 306,52 & $5{,}77\times$ & 100\%\\
-\texttt{openmp} (4 thr)   & 1.093,15  & 914,79 & $17{,}23\times$ & 100\%\\
-\texttt{cuda}             & 77,03     & 12.982,15 & $244{,}55\times$ & 100\%\\
+\keyword{baseline} (1 thr) & 18.837,71 & 53,09 & $1{,}00\times$ & 100\%\\
+\keyword{openmp} (1 thr)   & 3.262,45  & 306,52 & $5{,}77\times$ & 100\%\\
+\keyword{openmp} (4 thr)   & 1.093,15  & 914,79 & $17{,}23\times$ & 100\%\\
+\keyword{cuda}             & 77,03     & 12.982,15 & $244{,}55\times$ & 100\%\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Gambar~\ref{fig:speedup} memvisualisasikan \textit{speedup} (skala logaritmik).
+Gambar~\ref{fig:speedup} menampilkan \keyword{speedup} pada skala logaritmik.
 
 \begin{figure}[H]
 \centering
@@ -218,7 +440,7 @@ Gambar~\ref{fig:speedup} memvisualisasikan \textit{speedup} (skala logaritmik).
 \begin{axis}[
   ybar, bar width=22pt, width=0.82\linewidth, height=6.2cm,
   ymin=0.5, ymode=log,
-  ylabel={\textit{Speedup} vs baseline ($\times$)},
+  ylabel={\keyword{Speedup} vs baseline ($\times$)},
   symbolic x coords={openmp-1, openmp-4, cuda},
   xtick=data,
   xticklabels={OpenMP 1 thr, OpenMP 4 thr, CUDA (GEMM)},
@@ -232,13 +454,13 @@ Gambar~\ref{fig:speedup} memvisualisasikan \textit{speedup} (skala logaritmik).
 };
 \end{axis}
 \end{tikzpicture}
-\caption{\textit{Speedup} relatif terhadap \textit{baseline} (skala logaritmik).}
+\caption{Speedup relatif terhadap baseline pada skala logaritmik.}
 \label{fig:speedup}
 \end{figure}
 
-\subsection{Latensi Persentil Per-Kueri}
-Untuk skenario interaktif, latensi diukur per kueri tunggal
-(Tabel~\ref{tab:latency}).
+\section{Latensi Persentil Per-Kueri}
+
+Untuk skenario interaktif, latensi diukur per kueri tunggal (Tabel~\ref{tab:latency}).
 
 \begin{table}[H]
 \centering
@@ -248,25 +470,21 @@ Untuk skenario interaktif, latensi diukur per kueri tunggal
 \toprule
 \textbf{Engine} & \textbf{p50} & \textbf{p95} & \textbf{p99}\\
 \midrule
-\texttt{baseline} (CPU 1 thr) & 19,131 & 21,688 & 24,066\\
-\texttt{cuda} (GEMM+refine)   & 1,475  & 2,586  & 3,071\\
+\keyword{baseline} (CPU 1 thr) & 19,131 & 21,688 & 24,066\\
+\keyword{cuda} (GEMM+refine)   & 1,475  & 2,586  & 3,071\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-CUDA memenuhi K3 dengan p95 $= 2{,}586$~ms, jauh di bawah ambang 100~ms.
-Pada K4, latensi p95 endpoint \texttt{POST /search} (engine terbaik) terukur
-$\approx 11{,}7$~ms pada $N=100.000$ --- juga memenuhi ambang.
+CUDA memenuhi K3 dengan p95 sebesar $2{,}586$~ms, jauh di bawah ambang 100~ms. Pada K4, latensi p95 endpoint \texttt{POST /search} dengan \keyword{engine} terbaik terukur sekitar $11{,}7$~ms pada $N=100.000$, juga memenuhi ambang.
 
-\subsection{Skalabilitas dan Efisiensi Paralel}
-\textit{Speedup} paralel OpenMP (terhadap OpenMP 1 thread, untuk mengisolasi
-efek paralelisasi dari efek tiling/SIMD) adalah $3.262{,}45 / 1.093{,}15 =
-2{,}98\times$ pada 4 thread, sehingga \textit{parallel efficiency}
-$E = 2{,}98/4 = 74{,}6\%$ (memenuhi K6 $\geq 62{,}5\%$).
+\section{Skalabilitas dan Efisiensi Paralel}
 
-\subsection{Jejak Memori Terdistribusi (MPI)}
-Karena tiap proses hanya memuat $\lceil N/P\rceil$ baris, jejak memori per
-proses menurun (Tabel~\ref{tab:mpi}, $N=500.000$).
+\keyword{Speedup} paralel OpenMP diukur terhadap OpenMP 1 \keyword{thread} agar efek paralelisasi terpisah dari efek tiling dan SIMD. Hasilnya $3.262{,}45 / 1.093{,}15 = 2{,}98\times$ pada 4 \keyword{thread}, sehingga \keyword{parallel efficiency} $E = 2{,}98/4 = 74{,}6\%$, memenuhi K6 ($\geq 62{,}5\%$).
+
+\section{Jejak Memori Terdistribusi (MPI)}
+
+Karena tiap proses hanya memuat $\lceil N/P \rceil$ baris, jejak memori per proses menurun. Tabel~\ref{tab:mpi} menampilkan hasil pada $N=500.000$.
 
 \begin{table}[H]
 \centering
@@ -282,16 +500,11 @@ proses menurun (Tabel~\ref{tab:mpi}, $N=500.000$).
 \end{tabular}
 \end{table}
 
-Reduksi jejak memori $P=1 \rightarrow P=4$ sebesar $770.532 / 208.020 =
-3{,}70\times$ (memenuhi K7 $\geq 3\times$). Hasil MPI \textit{exact}: himpunan
-top-$k$ identik untuk $P=1,2,4$.
+Reduksi jejak memori dari $P=1$ ke $P=4$ sebesar $770.532 / 208.020 = 3{,}70\times$, memenuhi K7 ($\geq 3\times$). Hasil MPI bersifat eksak, dengan himpunan \keyword{top-k} identik untuk $P=1,2,4$.
 
-\subsection{Hasil Demonstrasi pada Korpus SIKA (20.033 Potongan)}
-Pada aplikasi SIKA sesungguhnya (korpus SOP terkurasi + referensi, $N=20.033$),
-\textit{benchmark} 200 kueri per \textit{engine} melalui endpoint
-\texttt{POST /bench} memberikan hasil seperti Tabel~\ref{tab:web}. CUDA menjadi
-\textit{engine} dengan latensi terendah dan paling konsisten, sesuai perannya
-sebagai \textit{engine} utama demonstrasi.
+\section{Hasil Demonstrasi pada Korpus SIKA}
+
+Pada aplikasi SIKA dengan korpus SOP terkurasi dan potongan referensi ($N=20.033$), \keyword{benchmark} 200 kueri per \keyword{engine} melalui \texttt{POST /bench} memberi hasil pada Tabel~\ref{tab:web}. CUDA menjadi \keyword{engine} dengan latensi terendah dan paling konsisten.
 
 \begin{table}[H]
 \centering
@@ -301,118 +514,96 @@ sebagai \textit{engine} utama demonstrasi.
 \toprule
 \textbf{Engine} & \textbf{p50 (ms)} & \textbf{p95 (ms)} & \textbf{p99 (ms)} & \textbf{QPS}\\
 \midrule
-\texttt{baseline} & 3,562 & 4,026 & 4,478 & 274,9\\
-\texttt{openmp}   & 1,611 & 2,672 & 3,320 & 553,2\\
-\texttt{cuda}     & 0,608 & 0,694 & 0,837 & 551,9\\
+\keyword{baseline} & 3,562 & 4,026 & 4,478 & 274,9\\
+\keyword{openmp}   & 1,611 & 2,672 & 3,320 & 553,2\\
+\keyword{cuda}     & 0,608 & 0,694 & 0,837 & 551,9\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Sebagai contoh \textit{end-to-end}, pertanyaan
-``Apakah pembelian lisensi perangkat lunak 40 juta perlu dua penawaran
-pembanding?'' dijawab dengan kutipan \textbf{SOP-PGD-02 Pasal 1}, latensi
-\textit{retrieval} $<1$~ms, dengan total respons (termasuk LLM) sekitar
-$2{,}5$~detik.
+Sebagai contoh \keyword{end-to-end}, pertanyaan ``Apakah pembelian lisensi perangkat lunak 40 juta perlu dua penawaran pembanding?'' dijawab dengan kutipan SOP-PGD-02 Pasal 1, latensi \keyword{retrieval} di bawah 1~ms, dan total respons termasuk LLM sekitar $2{,}5$~detik.
 
 % =====================================================================
-\section{Analisis \textit{Bottleneck}}
+\chapter{ANALISIS BOTTLENECK}
 % =====================================================================
-\begin{itemize}
-  \item \textbf{Memory-bound (CPU).} Matriks basis $N=100.000$, $D=384$
-  berukuran $\approx 153{,}6$~MB, melampaui LLC 12~MB $\approx 12{,}8\times$.
-  \textit{Baseline} membaca ulang seluruh matriks untuk tiap kueri. \textit{Cache
-  tiling} pada OpenMP (blok kueri) meningkatkan \textit{reuse} baris basis
-  sehingga OpenMP 1 thread pun sudah $5{,}77\times$ lebih cepat dari
-  \textit{baseline} meski hanya 1 thread.
-  \item \textbf{Compute-bound (GPU).} GPU GTX 1650 (4~GB) unggul pada
-  \textit{throughput} masif. Operasi inti dipetakan ke GEMM cuBLAS yang sangat
-  teroptimasi, menghasilkan \textit{speedup} batch hingga $244{,}55\times$.
-  \item \textbf{Komunikasi (MPI).} Pada satu mesin 4 core, proses MPI bersaing
-  memperebutkan core dan \textit{bandwidth} memori; karena itu MPI diposisikan
-  sebagai jalur \emph{skalabilitas kapasitas} (menurunkan jejak memori per
-  proses), bukan percepatan latensi.
-\end{itemize}
+
+\section{Memory-bound pada CPU}
+
+Matriks basis $N=100.000$, $D=384$ berukuran sekitar $153{,}6$~MB, melampaui LLC 12~MB sekitar $12{,}8$ kali. \keyword{Baseline} membaca ulang seluruh matriks untuk setiap kueri. \keyword{Cache tiling} pada OpenMP meningkatkan pemakaian ulang baris basis, sehingga OpenMP 1 \keyword{thread} pun sudah $5{,}77\times$ lebih cepat dari \keyword{baseline} meskipun hanya memakai satu \keyword{thread}. Kenaikan dari 1 ke 4 \keyword{thread} menambah \keyword{speedup} menjadi $17{,}23\times$, sejalan dengan batas Hukum Amdahl.
+
+\section{Compute-bound pada GPU}
+
+GPU GTX 1650 dengan 4~GB VRAM unggul pada \keyword{throughput} masif. Dengan memetakan operasi inti ke GEMM cuBLAS dan memindahkan basis ke VRAM sekali, \keyword{speedup} batch mencapai $244{,}55\times$. Biaya pemindahan matriks sekitar 60~ms pada PCIe terbagi ke 1.000 kueri, sehingga tidak mendominasi pada mode batch.
+
+\section{Komunikasi pada MPI}
+
+Pada satu mesin 4 \keyword{core}, proses MPI bersaing memperebutkan \keyword{core} dan \keyword{bandwidth} memori. Karena itu MPI diposisikan sebagai jalur skalabilitas kapasitas (menurunkan jejak memori per proses), bukan sebagai percepatan latensi. Komunikasi \keyword{broadcast} untuk kueri berukuran kecil dan \keyword{gather} untuk \keyword{top-k} parsial menambah \keyword{overhead} yang terukur, namun tetap memberi penurunan waktu komputasi per proses.
 
 % =====================================================================
-\section{Sistem Terdemostrasi (SIKA)}
+\chapter{SISTEM TERDEMONSTRASI (SIKA)}
 % =====================================================================
-\subsection{Arsitektur}
-SIKA dibagi menjadi empat lapisan pada satu mesin:
-\begin{enumerate}
-  \item \textbf{Antarmuka (Web UI)} --- Vite + React + TypeScript; menampilkan
-  jawaban, kutipan pasal, dan panel telemetri (p50/p95, QPS, \textit{engine} aktif).
-  \item \textbf{Layanan (API)} --- FastAPI dengan endpoint \texttt{/ask},
-  \texttt{/search}, \texttt{/engine}, \texttt{/config}, \texttt{/models},
-  \texttt{/bench}.
-  \item \textbf{Retrieval HPC} --- \textit{engine} C++ (\texttt{baseline},
-  \texttt{openmp}, \texttt{cuda}, \texttt{mpi}) yang diekspos ke Python via
-  \texttt{pybind11}, dapat ditukar saat berjalan tanpa \textit{restart}.
-  \item \textbf{Data} --- matriks vektor \textit{float32} $N\times D$ + metadata
-  pasal.
+
+\section{Arsitektur Sistem}
+
+SIKA dijalankan pada satu mesin dan dibagi menjadi empat lapisan:
+\begin{enumerate}[leftmargin=2em]
+  \item Lapisan Antarmuka (Web UI): Vite, React, dan TypeScript. Menampilkan jawaban, kutipan pasal, dan panel telemetri (p50/p95, QPS, \keyword{engine} aktif).
+  \item Lapisan Layanan (API): FastAPI dengan endpoint \texttt{/ask}, \texttt{/search}, \texttt{/engine}, \texttt{/config}, \texttt{/models}, dan \texttt{/bench}.
+  \item Lapisan Retrieval HPC: \keyword{engine} C++ (\keyword{baseline}, \keyword{openmp}, \keyword{cuda}, \keyword{mpi}) yang diekspos ke Python melalui \texttt{pybind11} dan dapat ditukar saat berjalan tanpa \keyword{restart}.
+  \item Lapisan Data: matriks vektor \texttt{float32} $N \times D$ beserta metadata pasal.
 \end{enumerate}
 
-\subsection{Alur Permintaan \texttt{POST /ask}}
-Pertanyaan $\rightarrow$ embedding (all-MiniLM-L6-v2, $D=384$) $\rightarrow$
-$k$-NN (\textit{engine} aktif) $\rightarrow$ pemetaan metadata pasal $\rightarrow$
-prompt ke LLM lokal/eksternal $\rightarrow$ jawaban + kutipan + rincian latensi.
-Hanya tahap \textit{retrieval} yang dioptimasi; tahap lain identik antar
-konfigurasi.
+\section{Alur Permintaan \texttt{POST /ask}}
 
-\subsection{Integrasi LLM}
-LLM memakai protokol \emph{OpenAI-compatible} yang dapat dikonfigurasi saat
-berjalan (Base URL, API Key, model via ``Fetch Models''). Bila penyedia gagal
-atau kena \textit{rate-limit} (HTTP 429), sistem otomatis \emph{fallback} ke
-jawaban \emph{extractive} dari pasal hasil \textit{retrieval}, sehingga demo tetap
-berjalan luring.
+Pertanyaan diubah menjadi \keyword{embedding} (all-MiniLM-L6-v2, $D=384$), lalu \keyword{engine} aktif menjalankan $k$-NN, hasilnya dipetakan ke metadata pasal, potongan teratas disisipkan ke prompt LLM, dan jawaban dikembalikan bersama kutipan dan rincian latensi. Hanya tahap \keyword{retrieval} yang dioptimasi; tahap lain dijaga identik antar konfigurasi.
 
-\subsection{Skenario Demonstrasi}
-D1 menjalankan sistem; D2 tanya normal; D3 beban 100 kueri serentak (QPS,
-p50/p95); D4 tukar \textit{engine} live (\texttt{baseline}$\rightarrow$\texttt{openmp}$\rightarrow$\texttt{cuda});
-D5 verifikasi \textit{recall} 100\%; D6 jawab $<1$~detik; D7 jalur mundur CPU
-tanpa GPU.
+\section{Integrasi LLM}
+
+LLM memakai protokol \keyword{OpenAI-compatible} yang dapat dikonfigurasi saat berjalan (Base URL, API Key, dan model melalui ``Fetch Models''). Bila penyedia gagal atau kena \keyword{rate-limit} (HTTP 429), sistem beralih ke jawaban \keyword{extractive} dari pasal hasil \keyword{retrieval}, sehingga demonstrasi tetap berjalan tanpa layanan eksternal.
+
+\section{Skenario Demonstrasi}
+
+Demonstrasi berdurasi sekitar delapan menit dengan alur berikut: D1 menjalankan sistem dan menampilkan status basis dokumen; D2 tanya normal dengan kutipan pasal; D3 beban 100 kueri serentak untuk menampilkan QPS dan p50/p95; D4 tukar \keyword{engine} secara langsung dari \keyword{baseline} ke \keyword{openmp} lalu \keyword{cuda}; D5 verifikasi \keyword{recall} 100\% antar \keyword{engine}; D6 jawab ulang pada \keyword{engine} tercepat di bawah satu detik; D7 jalur mundur CPU tanpa GPU.
 
 % =====================================================================
+\chapter{PENUTUP}
+% =====================================================================
+
 \section{Kesimpulan}
-% =====================================================================
-Akselerasi \textit{exact} k-NN berlapis berhasil memenuhi seluruh kriteria
-kelulusan K1--K7 dengan \textit{recall} tetap 100\%: OpenMP $17{,}23\times$,
-CUDA $244{,}55\times$ (batch) dengan p95 per-kueri $2{,}59$~ms, efisiensi
-paralel $74{,}6\%$, dan reduksi jejak memori MPI $3{,}70\times$. Optimasi
-tersebut terintegrasi dalam aplikasi SIKA yang dapat dioperasikan dan
-didemonstrasikan langsung, dengan \textit{engine} yang dapat ditukar saat
-berjalan.
 
-\subsection*{Saran Pengembangan}
-Implementasi hibrida MPI+CUDA (multi-GPU per simpul), eksplorasi presisi rendah
-(\textit{float16/bfloat16}, \textit{tensor core}), pembandingan terhadap pustaka
-industri (misalnya FAISS-GPU), serta penambahan korpus regulasi publik nyata
-untuk memperkuat validasi domain.
+Akselerasi \keyword{exact} $k$-NN berlapis memenuhi seluruh kriteria kelulusan K1 sampai K7 dengan \keyword{recall} tetap 100\%. OpenMP memberi \keyword{speedup} $17{,}23\times$, CUDA memberi $244{,}55\times$ pada mode batch dengan p95 per-kueri $2{,}59$~ms, efisiensi paralel mencapai $74{,}6\%$, dan MPI menurunkan jejak memori per proses $3{,}70\times$. Optimasi tersebut terintegrasi ke dalam aplikasi SIKA yang dapat dioperasikan dan didemonstrasikan langsung, dengan \keyword{engine} yang dapat ditukar saat berjalan.
+
+\section{Saran}
+
+Pengembangan lanjutan dapat diarahkan pada implementasi hibrida MPI dan CUDA (multi-GPU per simpul), eksplorasi presisi rendah (\keyword{float16/bfloat16} dan \keyword{tensor core}), pembandingan terhadap pustaka industri seperti FAISS-GPU, serta penambahan korpus regulasi publik nyata untuk memperkuat validasi domain. Pada sisi aplikatif, purwarupa SIKA dapat dikembangkan menuju sistem multi-pengguna dengan autentikasi dan pembaruan indeks bertahap.
 
 % =====================================================================
 \appendix
-\newpage
-\section{Cara Reproduksi}
+\renewcommand{\thechapter}{\Alph{chapter}}
+\renewcommand{\thesection}{\Alph{chapter}.\arabic{section}}
+\setcounter{chapter}{0}
+\setcounter{table}{0}
+\setcounter{figure}{0}
+
+\chapter{CARA REPRODUKSI}
 % =====================================================================
-\begin{lstlisting}[language=bash]
+
+\begin{lstlisting}[style=cppstyle,language=bash]
 # 1) Build engine
 cd engine && make bench bench_openmp bench_cuda mpi && cd ..
-# 2) Binding Python (baseline+openmp+cuda)
+# 2) Binding Python (baseline + openmp + cuda)
 bash scripts/build_binding.sh
-# 3) Korpus demo (SOP terkurasi + filler)
-bash scripts/build_corpus.py --filler 20000
-# 4) Evaluasi K1..K7 + laporan
+# 3) Korpus demo (SOP terkurasi + potongan referensi)
+python scripts/build_corpus.py --filler 20000
+# 4) Evaluasi K1..K7 dan laporan
 python scripts/evaluate_all.py --n 100000 --d 384 --q 1000 \
     --k 10 --reps 3 --mpi-n 500000
 python scripts/make_report.py
-# 5) Layanan + web
-bash scripts/run_service.sh          # :8000
-cd web && npm install && npm run dev # :5173
+# 5) Layanan dan web
+bash scripts/run_service.sh            # http://localhost:8000
+cd web && npm install && npm run dev   # http://localhost:5173
 \end{lstlisting}
 
-\noindent\textbf{Catatan lingkungan.} Untuk \textit{engine} CUDA di WSL2,
-gunakan variabel lingkungan \path{LD_LIBRARY_PATH=/usr/lib/wsl/lib} agar
-\texttt{libcuda.so} WSL terpilih. Penyedia LLM di Windows diakses dari WSL
-melalui IP host (bukan \texttt{127.0.0.1}); \texttt{run\_service.sh}
-menanganinya otomatis.
+\noindent Untuk \keyword{engine} CUDA di WSL2, setel variabel lingkungan \texttt{LD\_LIBRARY\_PATH=/usr/lib/wsl/lib} agar \texttt{libcuda.so} milik WSL yang terpilih. Penyedia LLM yang berjalan di Windows diakses dari WSL melalui alamat IP host, bukan \texttt{127.0.0.1}; skrip \texttt{run\_service.sh} menangani hal ini secara otomatis.
 
 \end{document}
