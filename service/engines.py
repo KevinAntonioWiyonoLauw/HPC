@@ -47,7 +47,7 @@ class EngineManager:
             self._loaded = True
             return
 
-        corpus = load_corpus(config.embeddings_dir, "sika")
+        corpus = load_corpus(config.embeddings_dir, os.environ.get("SIKA_CORPUS", "sika"))
         if corpus is not None:
             self.corpus = corpus
             self.engine.load_basis_array(corpus.matrix, corpus.n, corpus.dim)
