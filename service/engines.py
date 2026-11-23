@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -32,6 +33,20 @@ class EngineManager:
     def load(self):
         if self._loaded:
             return
+        # Override untuk benchmark skala besar / K4: muat basis sintetis via env
+        override = os.environ.get("SIKA_BASIS_FILE")
+        if override and os.path.exists(override):
+            n = int(os.environ.get("SIKA_N", "0"))
+            d = int(os.environ.get("SIKA_D", "384"))
+            self.engine.load_basis_file(override, n, d)
+            self.source = "synthetic-bench"
+            self.corpus = None
+            avail = self.engine.engines()
+            if self.active not in avail and avail:
+                self.active = avail[0]
+            self._loaded = True
+            return
+
         corpus = load_corpus(config.embeddings_dir, "sika")
         if corpus is not None:
             self.corpus = corpus

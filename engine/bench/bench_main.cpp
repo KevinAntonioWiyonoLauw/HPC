@@ -94,16 +94,17 @@ int main(int argc, char** argv) {
     if (a.mode == "single-query") {
         // Q query dijalankan bergantian, tiap query diukur sendiri.
         per_query_ms.reserve(a.q * a.reps);
-        double total_all = 0.0;
+        std::vector<Neighbor> out_all(a.q * a.k);  // akumulasi untuk recall
         for (std::size_t rep = 0; rep < a.reps; ++rep) {
             for (std::size_t qi = 0; qi < a.q; ++qi) {
                 QueryBatch one{queries.data() + qi * a.d, 1, a.d};
                 knn::Timer t;
                 fn(basis.data(), a.n, one, a.k, out);
                 per_query_ms.push_back(t.elapsed_ms());
+                for (std::size_t j = 0; j < a.k; ++j) out_all[qi * a.k + j] = out[j];
             }
-            total_all += 0.0;
         }
+        out = out_all;
         if (have_ref && !ref.empty()) recall_ok = knn::same_neighbor_sets(out, ref, a.q, a.k);
     } else {
         // batch: ukur total per rep, ambil median

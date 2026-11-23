@@ -14,4 +14,5 @@ export LLM_BASE_URL="$BASE"
 echo "LLM_BASE_URL (efektif) = $LLM_BASE_URL"
 
 cd service
+export LD_LIBRARY_PATH=/usr/lib/wsl/lib:${LD_LIBRARY_PATH:-}
 exec uvicorn app:app --host 0.0.0.0 --port 8000

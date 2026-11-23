@@ -1,0 +1,83 @@
+{
+  "config": {
+    "n": 100000,
+    "d": 384,
+    "q": 1000,
+    "k": 10,
+    "reps": 3,
+    "mpi_n": 500000,
+    "out_json": "/mnt/g/Project/Kuliah/HPC/hpc-knn-sika/results/report/kpi_summary.json"
+  },
+  "raw": {
+    "baseline_batch": {
+      "median": 18837.707,
+      "qps": 53.09,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0,
+      "recall": 1
+    },
+    "openmp4_batch": {
+      "median": 1093.152,
+      "qps": 914.79,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0,
+      "recall": 1
+    },
+    "openmp1_batch": {
+      "median": 3262.447,
+      "qps": 306.52,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0,
+      "recall": 1
+    },
+    "baseline_single": {
+      "median": 19.508,
+      "qps": 51.26,
+      "p50": 19.131,
+      "p95": 21.688,
+      "p99": 24.066,
+      "recall": 1
+    },
+    "cuda_batch": {
+      "median": 77.029,
+      "qps": 12982.15,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0,
+      "recall": 1
+    },
+    "cuda_single": {
+      "median": 1.942,
+      "qps": 514.94,
+      "p50": 1.475,
+      "p95": 2.586,
+      "p99": 3.071,
+      "recall": 1
+    },
+    "mpi_p1": {
+      "ms": 9349.07,
+      "rss_kb": 770532
+    },
+    "mpi_p4": {
+      "ms": 3443.347,
+      "rss_kb": 208020
+    }
+  },
+  "kpi": {
+    "K1_speedup_openmp4_vs_base": 17.23,
+    "K1_pass": true,
+    "K2_speedup_cuda_vs_base": 244.55,
+    "K2_pass": true,
+    "K3_cuda_p95_ms": 2.586,
+    "K3_pass": true,
+    "K6_parallel_eff_pct": 74.6,
+    "K6_pass": true,
+    "K5_recall_all_100": true,
+    "K5_pass": true,
+    "K7_mem_reduction_x": 3.7,
+    "K7_pass": true
+  }
+}

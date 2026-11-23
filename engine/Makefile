@@ -2,7 +2,7 @@ CXX      ?= g++
 NVCC     ?= nvcc
 MPICXX   ?= mpic++
 CXXFLAGS ?= -O3 -march=native -std=c++17 -Iinclude
-NVFLAGS  ?= -O3 -std=c++17 -Iinclude -gencode arch=compute_75,code=sm_75
+NVFLAGS  ?= -O3 -std=c++17 -Iinclude -gencode arch=compute_75,code=sm_75 --expt-relaxed-constexpr -Xcompiler -fPIC
 BUILD    := build
 SRC      := src
 
@@ -33,7 +33,7 @@ bench_cuda: $(BUILD)/bench_cuda
 $(BUILD)/cuda_knn.o: $(ENGINE_CUDA) include/knn_engine.h include/knn_util.h | $(BUILD)
 	$(NVCC) $(NVFLAGS) -c $< -o $@
 $(BUILD)/bench_cuda: bench/bench_main.cpp $(CORE) $(ENGINE_BASELINE) $(BUILD)/cuda_knn.o | $(BUILD)
-	$(CXX) $(CXXFLAGS) bench/bench_main.cpp $(CORE) $(ENGINE_BASELINE) $(BUILD)/cuda_knn.o -o $@ -L/usr/local/cuda/lib64 -lcudart
+	$(CXX) $(CXXFLAGS) bench/bench_main.cpp $(CORE) $(ENGINE_BASELINE) $(BUILD)/cuda_knn.o -o $@ -L/usr/local/cuda/lib64 -lcudart -lcublas
 
 # --- MPI standalone ---
 mpi: $(BUILD)/mpi_bench
