@@ -1,0 +1,17 @@
+# Build context minim: hanya yang dibutuhkan Dockerfile
+.venv/
+venv/
+node_modules/
+**/node_modules/
+engine/build/
+web/
+web/node_modules/
+web/dist/
+data/
+results/
+.git/
+.gitignore
+*.md
+**/__pycache__/
+*.pyc
+service/sika_engine*.so

@@ -105,3 +105,13 @@ python scripts/recall_check.py --from-engines --basis data/out/basis_100000_384.
 
 Salin `.env.example` → `.env` lalu isi `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`.
 `.env` tidak di-commit (lihat `.gitignore`).
+
+## Docker Compose (cepat)
+
+Bungkus seluruh sistem (backend + web) dalam container:
+```bash
+python scripts/build_corpus.py --filler 20000   # siapkan korpus (volume)
+docker compose up -d --build
+# Web: http://localhost:8088   API: http://localhost:8000
+```
+Detail (GPU, LLM, tanpa-GPU, port) ada di `DOCKER.md`.
