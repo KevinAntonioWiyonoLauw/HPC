@@ -18,6 +18,12 @@ data/out/
 data/corpora/raw/
 data/embeddings/
 results/raw/*.csv
+results/*.log
+results/*.out
+results/*.csv
+
+# Build binding python (dibangun via scripts/build_binding.sh)
+service/sika_engine*.so
 
 # Secrets
 .env

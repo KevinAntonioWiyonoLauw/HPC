@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+httpx
+pydantic
+pybind11
+numpy
