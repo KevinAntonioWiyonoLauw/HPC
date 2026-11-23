@@ -58,7 +58,7 @@ make mpi                    # butuh mpic++
 bash scripts/build_binding.sh
 
 # 2) bangun korpus demo (embedding MiniLM)
-bash scripts/_build_corpus.sh      # -> data/embeddings/sika.f32/.json
+bash scripts/build_corpus.py --filler 20000   # -> data/embeddings/sika.f32/.json
 
 # 3) jalankan API (auto-translate localhost -> IP host WSL untuk LLM)
 bash scripts/run_service.sh        # http://127.0.0.1:8000

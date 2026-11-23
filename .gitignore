@@ -11,6 +11,7 @@ __pycache__/
 *.so
 *.o
 *.obj
+*.tsbuildinfo
 .pytest_cache/
 
 # Data besar (regenerable via scripts)

@@ -13,7 +13,7 @@ cd engine && make bench bench_openmp bench_cuda && cd ..
 bash scripts/build_binding.sh
 
 # 3) Siapkan korpus demo (SOP terkurasi + filler ~20k potongan)
-bash scripts/_build_corpus_big.sh     # -> data/embeddings/sika.f32/.json
+bash scripts/build_corpus.py --filler 20000   # -> data/embeddings/sika.f32/.json
 
 # 4) Pastikan .env berisi provider LLM (lihat .env.example)
 ```
