@@ -20,10 +20,10 @@
     --accent-foreground: 222.2 47.4% 11.2%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 210 40% 98%;
-    --success: 142 71% 45%;
+    --success: 142 72% 28%;
     --success-foreground: 0 0% 100%;
     --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
+    --input: 214 20% 60%;
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.6rem;
   }
@@ -46,9 +46,9 @@
     --destructive: 0 62.8% 45%;
     --destructive-foreground: 210 40% 98%;
     --success: 142 71% 45%;
-    --success-foreground: 0 0% 100%;
+    --success-foreground: 150 40% 8%;
     --border: 217.2 32.6% 20%;
-    --input: 217.2 32.6% 20%;
+    --input: 217.2 26% 42%;
     --ring: 224.3 76.3% 48%;
   }
 }
@@ -60,6 +60,25 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  /* Affordance: kontrol yang bisa diklik memakai pointer (R-39) */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  summary,
+  label[for],
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+  /* Hormati preferensi reduced motion (R-19) */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
   }
 }
 

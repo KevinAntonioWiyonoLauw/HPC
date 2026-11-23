@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  Activity, ArrowRight, BookOpen, Cpu, Gauge, Loader2, Moon, Search,
-  Server, Settings, Sparkles, Sun, Zap,
+  Activity, ArrowRight, BarChart3, BookOpen, Boxes, FileText, Gauge,
+  Layers, Loader2, Moon, Network, Search, Server, Settings, Sun, Trophy,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Bar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer,
+  Tooltip as RTooltip, XAxis, YAxis,
+} from "recharts";
 
 import { api, AskResp, BenchResp, LLMConfig, Neighbor, Status } from "./api";
 import { Button } from "@/components/ui/button";
@@ -11,18 +15,24 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card";
-import {
-  Tabs, TabsContent, TabsList, TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function fmt(n: number, d = 2) {
   return n.toLocaleString("id-ID", { maximumFractionDigits: d });
@@ -30,9 +40,15 @@ function fmt(n: number, d = 2) {
 
 const ENGINE_ICON: Record<string, React.ReactNode> = {
   baseline: <Server className="h-3.5 w-3.5" />,
-  openmp: <Cpu className="h-3.5 w-3.5" />,
-  cuda: <Zap className="h-3.5 w-3.5" />,
-  mpi: <Activity className="h-3.5 w-3.5" />,
+  openmp: <Layers className="h-3.5 w-3.5" />,
+  cuda: <Boxes className="h-3.5 w-3.5" />,
+  mpi: <Network className="h-3.5 w-3.5" />,
+};
+const ENGINE_COLOR: Record<string, string> = {
+  baseline: "#94a3b8",
+  openmp: "#a855f7",
+  cuda: "#22c55e",
+  mpi: "#f59e0b",
 };
 
 export default function App() {
@@ -46,10 +62,12 @@ export default function App() {
   const [useLlm, setUseLlm] = useState(true);
   const [answer, setAnswer] = useState<AskResp | null>(null);
   const [bench, setBench] = useState<BenchResp | null>(null);
+  const [compare, setCompare] = useState<BenchResp[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [benchLoading, setBenchLoading] = useState(false);
+  const [compareLoading, setCompareLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [dark, setDark] = useState(true);
+  const [dark, setDark] = useState(false);
 
   async function refreshStatus() {
     try {
@@ -65,10 +83,19 @@ export default function App() {
   useEffect(() => {
     refreshStatus();
   }, []);
-
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
+
+  // Deep-link demo: ?demo=compare otomatis menjalankan perbandingan engine.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("demo") === "compare") {
+      const t = setTimeout(() => onCompare(), 400);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function onSwapEngine(name: string) {
     try {
@@ -86,8 +113,7 @@ export default function App() {
     setLoading(true);
     setAnswer(null);
     try {
-      const r = await api.ask(query, k, useLlm);
-      setAnswer(r);
+      setAnswer(await api.ask(query, k, useLlm));
     } catch (e: any) {
       toast.error("Permintaan gagal", { description: String(e.message || e) });
     } finally {
@@ -109,220 +135,223 @@ export default function App() {
     }
   }
 
+  async function onCompare() {
+    if (!query.trim()) return;
+    setCompareLoading(true);
+    setCompare(null);
+    try {
+      const rs = await api.compare(query, 100, k);
+      setCompare(rs);
+      toast.success("Perbandingan engine selesai");
+    } catch (e: any) {
+      toast.error("Gagal membandingkan", { description: String(e.message || e) });
+    } finally {
+      setCompareLoading(false);
+    }
+  }
+
+  const fastest = compare?.reduce<BenchResp | null>(
+    (best, r) => (best === null || r.p50_ms < best.p50_ms ? r : best), null);
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/30">
-      <div className="mx-auto max-w-6xl px-4 py-6">
-        {/* Header */}
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">SIKA</h1>
-              <p className="text-xs text-muted-foreground">
-                Asisten Kepatuhan Internal · Exact k-NN (HPC)
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {status && (
-              <>
-                <Badge variant="muted" className="gap-1">
-                  <BookOpen className="h-3 w-3" /> {status.corpus ?? status.source}
-                </Badge>
-                <Badge variant="muted" className="gap-1">
-                  N={fmt(status.n, 0)} · D={status.dim}
-                </Badge>
-                <Badge variant="secondary" className="gap-1 font-mono">
-                  {status.llm.model}
-                </Badge>
-              </>
-            )}
-            <Button variant="ghost" size="icon" onClick={() => setDark(!dark)} title="Tema">
-              {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowSettings(true)}>
-              <Settings className="h-4 w-4" /> Provider
-            </Button>
-          </div>
-        </header>
-
-        {/* Engine selector */}
-        <Card className="mb-4">
-          <CardContent className="flex flex-wrap items-center gap-2 py-3">
-            <span className="mr-1 text-sm text-muted-foreground">Engine aktif:</span>
-            {engines.map((e) => (
-              <Button
-                key={e}
-                size="sm"
-                variant={e === engine ? "success" : "outline"}
-                onClick={() => onSwapEngine(e)}
-                className="gap-1.5"
-              >
-                {ENGINE_ICON[e]} {e}
-              </Button>
-            ))}
-            <div className="ml-auto flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="k" className="text-xs text-muted-foreground">k</Label>
-                <Input
-                  id="k" type="number" min={1} max={100} value={k}
-                  onChange={(e) => setK(parseInt(e.target.value || "10"))}
-                  className="h-8 w-16"
-                />
+    <TooltipProvider delayDuration={200}>
+      <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/30">
+        <div className="mx-auto max-w-6xl px-4 py-6">
+          {/* Header */}
+          <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                <FileText className="h-5 w-5" />
               </div>
-              <div className="flex items-center gap-2">
-                <Switch id="llm" checked={useLlm} onCheckedChange={setUseLlm} />
-                <Label htmlFor="llm" className="text-xs text-muted-foreground">LLM</Label>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Query bar */}
-        <Card className="mb-4">
-          <CardContent className="flex flex-wrap items-center gap-2 py-3">
-            <div className="relative flex-1 min-w-[260px]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="h-10 pl-9"
-                placeholder="Tanyakan sesuatu tentang SOP/kepatuhan…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && onAsk()}
-              />
-            </div>
-            <Button onClick={onAsk} disabled={loading} className="h-10">
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-              Tanya
-            </Button>
-            <Button onClick={onBench} disabled={benchLoading} variant="secondary" className="h-10">
-              {benchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gauge className="h-4 w-4" />}
-              Bench 100×
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Results grid */}
-        <div className="grid gap-4 lg:grid-cols-3">
-          {/* Answer */}
-          <Card className="lg:col-span-2">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Sparkles className="h-4 w-4 text-primary" /> Jawaban
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {!answer && !loading && (
-                <p className="text-sm text-muted-foreground">
-                  Ajukan pertanyaan untuk melihat jawaban beserta kutipan pasal.
+              <div>
+                <h1 className="text-xl font-bold tracking-tight">SIKA</h1>
+                <p className="text-xs text-muted-foreground">
+                  Asisten Kepatuhan Internal · Exact k-NN (HPC)
                 </p>
-              )}
-              {loading && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Memproses…
-                </div>
-              )}
-              {answer && (
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {status && (
                 <>
-                  <div className="rounded-lg border bg-muted/40 p-4 text-sm leading-relaxed whitespace-pre-wrap">
-                    {answer.answer}
-                  </div>
-                  <div className="mt-2 text-xs text-muted-foreground font-mono">
-                    status LLM: {answer.llm_status}
-                  </div>
-
-                  <Tabs defaultValue="citations" className="mt-4">
-                    <TabsList>
-                      <TabsTrigger value="citations">Kutipan pasal</TabsTrigger>
-                      <TabsTrigger value="latency">Latensi</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="citations">
-                      <CitationList items={answer.citations} />
-                    </TabsContent>
-                    <TabsContent value="latency">
-                      <LatencyTable a={answer} />
-                    </TabsContent>
-                  </Tabs>
+                  <Badge variant="muted" className="gap-1"><BookOpen className="h-3 w-3" /> {status.corpus ?? status.source}</Badge>
+                  <Badge variant="muted" className="gap-1">N={fmt(status.n, 0)} · D={status.dim}</Badge>
+                  <Badge variant="secondary" className="gap-1 font-mono">{status.llm.model}</Badge>
                 </>
               )}
+              <Tooltip><TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" onClick={() => setDark(!dark)}>
+                  {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger><TooltipContent>Tema terang/gelap</TooltipContent></Tooltip>
+              <Button variant="outline" size="sm" onClick={() => setShowSettings(true)}>
+                <Settings className="h-4 w-4" /> Provider
+              </Button>
+            </div>
+          </header>
+
+          {/* Engine + controls */}
+          <Card className="mb-4">
+            <CardContent className="flex flex-wrap items-center gap-2 py-3">
+              <span className="mr-1 text-sm text-muted-foreground">Engine aktif:</span>
+              {engines.map((e) => (
+                <Button key={e} size="sm" variant={e === engine ? "success" : "outline"}
+                  onClick={() => onSwapEngine(e)} className="gap-1.5">
+                  {ENGINE_ICON[e]} {e}
+                </Button>
+              ))}
+              <div className="ml-auto flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="k" className="text-xs text-muted-foreground">k</Label>
+                  <Input id="k" type="number" min={1} max={100} value={k}
+                    onChange={(e) => setK(parseInt(e.target.value || "10"))} className="h-8 w-16" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch id="llm" checked={useLlm} onCheckedChange={setUseLlm} />
+                  <Label htmlFor="llm" className="text-xs text-muted-foreground">LLM</Label>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
-          {/* Telemetry */}
-          <div className="space-y-4">
-            <Card>
-              <CardHeader className="pb-2">
+          {/* Query bar */}
+          <Card className="mb-4">
+            <CardContent className="flex flex-wrap items-center gap-2 py-3">
+              <div className="relative flex-1 min-w-[260px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input className="h-10 pl-9" placeholder="Tanyakan sesuatu tentang SOP/kepatuhan…"
+                  value={query} onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && onAsk()} />
+              </div>
+              <Button onClick={onAsk} disabled={loading} className="h-10">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />} Tanya
+              </Button>
+              <Button onClick={onBench} disabled={benchLoading} variant="secondary" className="h-10">
+                {benchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gauge className="h-4 w-4" />} Bench 100×
+              </Button>
+              <Button onClick={onCompare} disabled={compareLoading} variant="outline" className="h-10">
+                {compareLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />} Bandingkan
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Results grid */}
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <Activity className="h-4 w-4 text-primary" /> Telemetri
+                  <FileText className="h-4 w-4 text-primary" /> Jawaban
                 </CardTitle>
-                <CardDescription>Latensi per tahap</CardDescription>
               </CardHeader>
               <CardContent>
-                {answer ? <LatencyTable a={answer} compact /> : (
-                  <p className="text-sm text-muted-foreground">Belum ada data.</p>
+                {!answer && !loading && (
+                  <p className="text-sm text-muted-foreground">Ajukan pertanyaan untuk melihat jawaban beserta kutipan pasal.</p>
+                )}
+                {loading && (
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-5/6" /><Skeleton className="h-20 w-full" />
+                  </div>
+                )}
+                {answer && (
+                  <>
+                    <div className="rounded-lg border bg-muted/40 p-4 text-sm leading-relaxed whitespace-pre-wrap">
+                      {answer.answer}
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground font-mono">status LLM: {answer.llm_status}</div>
+                    <Tabs defaultValue="citations" className="mt-4">
+                      <TabsList>
+                        <TabsTrigger value="citations">Kutipan pasal</TabsTrigger>
+                        <TabsTrigger value="latency">Latensi</TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="citations"><CitationList items={answer.citations} /></TabsContent>
+                      <TabsContent value="latency"><LatencyTable a={answer} /></TabsContent>
+                    </Tabs>
+                  </>
                 )}
               </CardContent>
             </Card>
 
-            <Card>
+            <div className="space-y-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Activity className="h-4 w-4 text-primary" /> Telemetri
+                  </CardTitle>
+                  <CardDescription>Latensi per tahap</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {answer ? <LatencyTable a={answer} /> : <p className="text-sm text-muted-foreground">Belum ada data.</p>}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Gauge className="h-4 w-4 text-primary" /> Beban 100 query
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {bench ? <BenchTable b={bench} /> : <p className="text-sm text-muted-foreground">Klik “Bench 100×”.</p>}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          {/* Compare section */}
+          {(compare || compareLoading) && (
+            <Card className="mt-4">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <Gauge className="h-4 w-4 text-primary" /> Beban 100 query
+                  <BarChart3 className="h-4 w-4 text-primary" /> Perbandingan Engine
+                  {fastest && (
+                    <Badge variant="success" className="ml-2 gap-1">
+                      <Trophy className="h-3 w-3" /> tercepat: {fastest.engine}
+                    </Badge>
+                  )}
                 </CardTitle>
+                <CardDescription>p50 / p95 (ms) dan QPS, 100 query per engine</CardDescription>
               </CardHeader>
               <CardContent>
-                {bench ? <BenchTable b={bench} /> : (
-                  <p className="text-sm text-muted-foreground">Klik “Bench 100×”.</p>
-                )}
+                {compareLoading && <div className="space-y-2"><Skeleton className="h-40 w-full" /><Skeleton className="h-4 w-1/2" /></div>}
+                {compare && <CompareView data={compare} />}
               </CardContent>
             </Card>
-          </div>
+          )}
+
+          <footer className="mt-8 text-center text-xs text-muted-foreground">
+            SIKA · Exact k-NN (HPC) · baseline · openmp · cuda
+          </footer>
         </div>
 
-        <footer className="mt-8 text-center text-xs text-muted-foreground">
-          SIKA · Exact k-NN (HPC) — baseline · openmp · cuda
-        </footer>
+        <ProviderDialog open={showSettings} onOpenChange={setShowSettings}
+          initial={status?.llm} onSaved={() => { setShowSettings(false); refreshStatus(); }} />
       </div>
-
-      <ProviderDialog
-        open={showSettings}
-        onOpenChange={setShowSettings}
-        initial={status?.llm}
-        onSaved={() => {
-          setShowSettings(false);
-          refreshStatus();
-        }}
-      />
-    </div>
+    </TooltipProvider>
   );
 }
 
 function CitationList({ items }: { items: Neighbor[] }) {
   return (
-    <ol className="space-y-3">
-      {items.map((c) => (
-        <li key={c.rank} className="rounded-lg border p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="success" className="font-mono">
-              {c.meta.sop} {c.meta.pasal}
-            </Badge>
-            <span className="text-xs text-muted-foreground">
-              {c.meta.judul} · {c.meta.tahun} · {c.meta.unit}
-            </span>
-            <Badge variant="outline" className="ml-auto font-mono">
-              d={c.distance.toFixed(4)}
-            </Badge>
-          </div>
-          <p className="mt-2 text-sm leading-relaxed text-foreground/90">{c.text}</p>
-        </li>
-      ))}
-    </ol>
+    <ScrollArea className="max-h-[420px] pr-3">
+      <ol className="space-y-3">
+        {items.map((c) => (
+          <li key={c.rank} className="rounded-lg border p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="success" className="font-mono">{c.meta.sop} {c.meta.pasal}</Badge>
+              <span className="text-xs text-muted-foreground">
+                {c.meta.judul} · {c.meta.tahun} · {c.meta.unit}
+              </span>
+              <Badge variant="outline" className="ml-auto font-mono">d={c.distance.toFixed(4)}</Badge>
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-foreground/90">{c.text}</p>
+          </li>
+        ))}
+      </ol>
+    </ScrollArea>
   );
 }
 
-function LatencyTable({ a, compact = false }: { a: AskResp; compact?: boolean }) {
+function LatencyTable({ a }: { a: AskResp }) {
   const rows = [
     ["Embedding", a.latency.embed_ms],
     [`Retrieval (${a.engine})`, a.latency.retrieval_ms],
@@ -368,6 +397,81 @@ function BenchTable({ b }: { b: BenchResp }) {
   );
 }
 
+function CompareView({ data }: { data: BenchResp[] }) {
+  const chartData = data.map((r) => ({ engine: r.engine, p50: r.p50_ms, p95: r.p95_ms, qps: r.qps }));
+  const axis = { fontSize: 12, fill: "hsl(var(--muted-foreground))" } as const;
+  const tooltipStyle = {
+    background: "hsl(var(--popover))",
+    border: "1px solid hsl(var(--border))",
+    borderRadius: 8,
+    fontSize: 12,
+    color: "hsl(var(--popover-foreground))",
+  };
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-5 md:grid-cols-2">
+        <div>
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Latensi (ms), lebih kecil lebih baik</p>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis dataKey="engine" tick={axis} axisLine={false} tickLine={false} />
+              <YAxis tick={axis} axisLine={false} tickLine={false} />
+              <RTooltip contentStyle={tooltipStyle} cursor={{ fill: "hsl(var(--muted))", opacity: 0.4 }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="p50" name="p50" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+              <Bar dataKey="p95" name="p95" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Throughput (QPS), lebih besar lebih baik</p>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis dataKey="engine" tick={axis} axisLine={false} tickLine={false} />
+              <YAxis tick={axis} axisLine={false} tickLine={false} />
+              <RTooltip contentStyle={tooltipStyle} cursor={{ fill: "hsl(var(--muted))", opacity: 0.4 }} />
+              <Bar dataKey="qps" name="QPS" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                {chartData.map((d) => (
+                  <Cell key={d.engine} fill={ENGINE_COLOR[d.engine] ?? "hsl(var(--primary))"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Engine</TableHead>
+              <TableHead className="text-right">p50 (ms)</TableHead>
+              <TableHead className="text-right">p95 (ms)</TableHead>
+              <TableHead className="text-right">p99 (ms)</TableHead>
+              <TableHead className="text-right">QPS</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.map((r) => (
+              <TableRow key={r.engine}>
+                <TableCell>
+                  <Badge variant="outline" className="gap-1">{ENGINE_ICON[r.engine]} {r.engine}</Badge>
+                </TableCell>
+                <TableCell className="text-right font-mono">{fmt(r.p50_ms, 3)}</TableCell>
+                <TableCell className="text-right font-mono">{fmt(r.p95_ms, 3)}</TableCell>
+                <TableCell className="text-right font-mono">{fmt(r.p99_ms, 3)}</TableCell>
+                <TableCell className="text-right font-mono">{fmt(r.qps, 1)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
 function ProviderDialog({
   open, onOpenChange, initial, onSaved,
 }: {
@@ -388,9 +492,7 @@ function ProviderDialog({
 
   useEffect(() => {
     if (!open) return;
-    api.getConfig()
-      .then((c) => setCfg((p) => ({ ...p, ...c, api_key: "" })))
-      .catch(() => {});
+    api.getConfig().then((c) => setCfg((p) => ({ ...p, ...c, api_key: "" }))).catch(() => {});
   }, [open]);
 
   async function fetchModels() {
@@ -445,8 +547,7 @@ function ProviderDialog({
           <div className="space-y-1.5">
             <Label htmlFor="key">API Key</Label>
             <Input id="key" type="password" placeholder="(kosongkan untuk mempertahankan)"
-              value={cfg.api_key}
-              onChange={(e) => setCfg({ ...cfg, api_key: e.target.value })} />
+              value={cfg.api_key} onChange={(e) => setCfg({ ...cfg, api_key: e.target.value })} />
           </div>
           <div className="space-y-1.5">
             <Label>Model</Label>
@@ -458,9 +559,7 @@ function ProviderDialog({
                 <Select value={cfg.model} onValueChange={(v) => setCfg({ ...cfg, model: v })}>
                   <SelectTrigger><SelectValue placeholder="Pilih model" /></SelectTrigger>
                   <SelectContent>
-                    {models.map((m) => (
-                      <SelectItem key={m} value={m}>{m}</SelectItem>
-                    ))}
+                    {models.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
                   </SelectContent>
                 </Select>
               ) : (

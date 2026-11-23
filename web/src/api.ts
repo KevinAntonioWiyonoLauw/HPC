@@ -1,4 +1,4 @@
-// api.ts — klien tipis ke FastAPI SIKA (via proxy /api)
+// api.ts - klien tipis ke FastAPI SIKA (via proxy /api)
 const BASE = "/api";
 
 export interface Status {
@@ -78,6 +78,24 @@ export const api = {
     j<AskResp>("/ask", { method: "POST", body: JSON.stringify({ query, k, use_llm }) }),
   bench: (query: string, n = 100, k = 10, engine?: string) =>
     j<BenchResp>("/bench", { method: "POST", body: JSON.stringify({ query, n, k, engine }) }),
+  compare: async (query: string, n = 100, k = 10): Promise<BenchResp[]> => {
+    const { engines } = await j<{ engines: string[]; active: string }>("/engines");
+    const results: BenchResp[] = [];
+    // sekuensial agar tidak saling berebut GPU/CPU (angka tail lebih bersih)
+    for (const e of engines) {
+      try {
+        results.push(
+          await j<BenchResp>("/bench", {
+            method: "POST",
+            body: JSON.stringify({ query, n, k, engine: e }),
+          })
+        );
+      } catch {
+        /* lewati engine yang gagal */
+      }
+    }
+    return results;
+  },
   getConfig: () => j<LLMConfig>("/config"),
   setConfig: (c: Partial<LLMConfig>) =>
     j<LLMConfig>("/config", { method: "POST", body: JSON.stringify(c) }),

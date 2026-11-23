@@ -4,9 +4,6 @@ import App from "./App";
 import { Toaster } from "sonner";
 import "./styles.css";
 
-// default dark mode
-document.documentElement.classList.add("dark");
-
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />
