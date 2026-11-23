@@ -1,0 +1,30 @@
+# Python venv
+.venv/
+venv/
+
+# Build artifacts
+engine/build/
+web/node_modules/
+web/dist/
+__pycache__/
+*.pyc
+*.so
+*.o
+*.obj
+.pytest_cache/
+
+# Data besar (regenerable via scripts)
+data/out/
+data/corpora/raw/
+data/embeddings/
+results/raw/*.csv
+
+# Secrets
+.env
+*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
