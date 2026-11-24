@@ -1,0 +1,17 @@
+ROOFLINE EFEKTIF (fallback) N=100000 D=384 Q=1000 k=10
+GPU referensi GTX 1650: bandwidth ~128 GB/s, FP32 ~2.98 TFLOPS
+
+engine             ms    GFLOPS  BW_naive GB/s  BW_min GB/s  traffic_x
+----------------------------------------------------------------------
+baseline    18231.402      6.32           8.43         0.01      990.1
+openmp4       958.100    120.24         160.32         0.16      990.1
+cuda           68.599   1679.32        2239.10         2.26      990.1
+
+MPI: gagal parsing. stdout=mpi size=4 n=100000 d=384 q=1000 k=10 reps=1
+median_compute_ms=5651.259 qps=176.95 max_rss_kb=59488 rss_per_proc_kb=59240
+comm_ms=0.229 comm_frac=0.0000
+
+
+Interpretasi: traffic_x = berapa kali basis dibaca dibanding minimum.
+baseline tanpa tiling ~ Q kali; openmp dengan tiling ~ Q/QBLK kali.
+BW_min mendekati puncak hardware => memory-bound; GFLOPS rendah => compute underutilized.

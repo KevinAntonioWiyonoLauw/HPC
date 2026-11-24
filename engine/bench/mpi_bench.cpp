@@ -115,10 +115,14 @@ int main(int argc, char** argv) {
     }
 
     // Gather semua kandidat ke rank 0 (jumlah byte eksplisit!)
+    MPI_Barrier(MPI_COMM_WORLD);
+    double tc0 = MPI_Wtime();
     const int gather_count = static_cast<int>(Q * K * sizeof(Neighbor));
     gathered.resize(Q * K * size);
     MPI_Gather(local.data(), gather_count, MPI_BYTE,
                gathered.data(), gather_count, MPI_BYTE, 0, MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
+    double comm_ms = (MPI_Wtime() - tc0) * 1000.0;
 
     // kumpulkan memori per rank
     long max_rss = 0;
@@ -145,6 +149,8 @@ int main(int argc, char** argv) {
         std::printf("mpi size=%d n=%zu d=%zu q=%zu k=%zu reps=%zu\n", size, N, D, Q, K, reps);
         std::printf("median_compute_ms=%.3f qps=%.2f max_rss_kb=%ld rss_per_proc_kb=%ld\n",
                     med, qps, max_rss, rss_kb);
+        double comm_frac = (med + comm_ms) > 0 ? comm_ms / (med + comm_ms) : 0.0;
+        std::printf("comm_ms=%.3f comm_frac=%.4f\n", comm_ms, comm_frac);
 
         if (!dump_path.empty()) {
             // dump idx (Q x K) int32 untuk verifikasi recall

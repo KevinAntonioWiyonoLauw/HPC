@@ -1,0 +1,81 @@
+{
+  "config": {
+    "d": 384,
+    "q": 200,
+    "k": 10,
+    "reps": 2,
+    "strong_n": 250000,
+    "weak_unit": 150000,
+    "units": "1,2,4",
+    "data_dir": "/tmp/sika_data",
+    "out_json": "/mnt/g/Project/Kuliah/HPC/hpc-knn-sika/results/report/scaling.json"
+  },
+  "strong_openmp": {
+    "1": {
+      "T_ms": 1595.426,
+      "speedup": 1.0,
+      "eff_pct": 100.0
+    },
+    "2": {
+      "T_ms": 1133.444,
+      "speedup": 1.408,
+      "eff_pct": 70.4
+    },
+    "4": {
+      "T_ms": 1057.308,
+      "speedup": 1.509,
+      "eff_pct": 37.7
+    }
+  },
+  "strong_mpi": {
+    "1": {
+      "T_ms": 9624.551,
+      "speedup": 1.0,
+      "eff_pct": 100.0
+    },
+    "2": {
+      "T_ms": 5433.326,
+      "speedup": 1.771,
+      "eff_pct": 88.6
+    },
+    "4": {
+      "T_ms": 3152.403,
+      "speedup": 3.053,
+      "eff_pct": 76.3
+    }
+  },
+  "weak_openmp": {
+    "1": {
+      "N": 150000,
+      "T_ms": 1030.696,
+      "Ew": 1.0
+    },
+    "2": {
+      "N": 300000,
+      "T_ms": 1373.559,
+      "Ew": 0.75
+    },
+    "4": {
+      "N": 600000,
+      "T_ms": 2565.313,
+      "Ew": 0.402
+    }
+  },
+  "weak_mpi": {
+    "1": {
+      "N": 150000,
+      "T_ms": 6440.195,
+      "Ew": 1.0
+    },
+    "2": {
+      "N": 300000,
+      "T_ms": 6361.489,
+      "Ew": 1.012
+    },
+    "4": {
+      "N": 600000,
+      "T_ms": 7675.489,
+      "Ew": 0.839
+    }
+  }
+}

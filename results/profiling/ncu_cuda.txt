@@ -1,0 +1,7 @@
+==WARNING== Note: Running with unmodified GPU clocks. If not controlled otherwise, profiling results may be inconsistent.
+==PROF== Connected to process 439 (/mnt/g/Project/Kuliah/HPC/hpc-knn-sika/engine/build/bench_cuda)
+==ERROR== ERR_NVGPUCTRPERM - The user does not have permission to access NVIDIA GPU Performance Counters on the target device 0. For instructions on enabling permissions and to get more information see https://developer.nvidia.com/ERR_NVGPUCTRPERM
+==PROF== Disconnected from process 439
+engine=cuda n=100000 d=384 q=1000 k=10 mode=batch reps=1
+median_time_ms=3644.858 qps=274.36 p50=0.000 p95=0.000 p99=0.000 recall_ok=1
+==WARNING== No kernels were profiled.
