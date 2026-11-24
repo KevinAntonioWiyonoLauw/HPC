@@ -1,0 +1,30 @@
+{
+  "config": {
+    "n": 500000,
+    "d": 384,
+    "k": 10,
+    "engine": "cuda",
+    "requests": 300,
+    "load_mode": "preload",
+    "engines_available": [
+      "baseline",
+      "cuda",
+      "openmp",
+      "mpi"
+    ]
+  },
+  "retrieval_only_ms": {
+    "p50": 7.289,
+    "p95": 8.278,
+    "p99": 8.761,
+    "mean": 7.42
+  },
+  "with_embedding_ms": {
+    "p50": 15.762,
+    "p95": 24.564,
+    "p99": 191.062,
+    "mean": 22.931,
+    "samples": 50
+  },
+  "K4_pass": true
+}

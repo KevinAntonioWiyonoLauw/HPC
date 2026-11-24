@@ -1,83 +1,116 @@
 {
   "config": {
-    "n": 100000,
+    "n": 500000,
     "d": 384,
     "q": 1000,
     "k": 10,
-    "reps": 3,
+    "reps": 5,
     "mpi_n": 500000,
+    "k4": true,
     "out_json": "/mnt/g/Project/Kuliah/HPC/hpc-knn-sika/results/report/kpi_summary.json"
   },
   "raw": {
     "baseline_batch": {
-      "median": 18837.707,
-      "qps": 53.09,
+      "median": 86450.743,
+      "qps": 11.57,
       "p50": 0.0,
       "p95": 0.0,
       "p99": 0.0,
       "recall": 1
     },
     "openmp4_batch": {
-      "median": 1093.152,
-      "qps": 914.79,
+      "median": 4510.344,
+      "qps": 221.71,
       "p50": 0.0,
       "p95": 0.0,
       "p99": 0.0,
       "recall": 1
     },
     "openmp1_batch": {
-      "median": 3262.447,
-      "qps": 306.52,
+      "median": 13667.258,
+      "qps": 73.17,
       "p50": 0.0,
       "p95": 0.0,
       "p99": 0.0,
       "recall": 1
     },
     "baseline_single": {
-      "median": 19.508,
-      "qps": 51.26,
-      "p50": 19.131,
-      "p95": 21.688,
-      "p99": 24.066,
+      "median": 87.247,
+      "qps": 11.46,
+      "p50": 81.344,
+      "p95": 88.631,
+      "p99": 108.056,
       "recall": 1
     },
     "cuda_batch": {
-      "median": 77.029,
-      "qps": 12982.15,
+      "median": 252.63,
+      "qps": 3958.36,
       "p50": 0.0,
       "p95": 0.0,
       "p99": 0.0,
       "recall": 1
     },
     "cuda_single": {
-      "median": 1.942,
-      "qps": 514.94,
-      "p50": 1.475,
-      "p95": 2.586,
-      "p99": 3.071,
+      "median": 8.622,
+      "qps": 115.98,
+      "p50": 6.288,
+      "p95": 6.676,
+      "p99": 7.159,
       "recall": 1
     },
     "mpi_p1": {
-      "ms": 9349.07,
-      "rss_kb": 770532
+      "ms": 8337.571,
+      "rss_kb": 770352
     },
     "mpi_p4": {
-      "ms": 3443.347,
-      "rss_kb": 208020
+      "ms": 2571.235,
+      "rss_kb": 207744
+    },
+    "k4": {
+      "config": {
+        "n": 500000,
+        "d": 384,
+        "k": 10,
+        "engine": "cuda",
+        "requests": 300,
+        "load_mode": "preload",
+        "engines_available": [
+          "baseline",
+          "cuda",
+          "openmp",
+          "mpi"
+        ]
+      },
+      "retrieval_only_ms": {
+        "p50": 7.289,
+        "p95": 8.278,
+        "p99": 8.761,
+        "mean": 7.42
+      },
+      "with_embedding_ms": {
+        "p50": 15.762,
+        "p95": 24.564,
+        "p99": 191.062,
+        "mean": 22.931,
+        "samples": 50
+      },
+      "K4_pass": true
     }
   },
   "kpi": {
-    "K1_speedup_openmp4_vs_base": 17.23,
+    "K1_speedup_openmp4_vs_base": 19.17,
     "K1_pass": true,
-    "K2_speedup_cuda_vs_base": 244.55,
+    "K2_speedup_cuda_vs_base": 342.2,
     "K2_pass": true,
-    "K3_cuda_p95_ms": 2.586,
+    "K3_cuda_p95_ms": 6.676,
     "K3_pass": true,
-    "K6_parallel_eff_pct": 74.6,
+    "K4_p95_ms": 8.278,
+    "K4_pass": true,
+    "K6_parallel_eff_pct": 75.8,
     "K6_pass": true,
     "K5_recall_all_100": true,
     "K5_pass": true,
-    "K7_mem_reduction_x": 3.7,
+    "K7_mem_reduction_x": 3.71,
     "K7_pass": true
   }
 }

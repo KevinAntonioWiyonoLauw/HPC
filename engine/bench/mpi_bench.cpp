@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    std::string basis_path, queries_path, dump_path;
+    std::string basis_path, queries_path, dump_path, dump_dist_path;
     std::size_t N = 0, D = 0, Q = 0, K = 10, reps = 3;
     for (int i = 1; i < argc; ++i) {
         std::string s = argv[i];
@@ -56,6 +56,7 @@ int main(int argc, char** argv) {
         else if (s == "--k") K = std::stoull(nx());
         else if (s == "--reps") reps = std::stoull(nx());
         else if (s == "--dump") dump_path = nx();
+        else if (s == "--dump-dist") dump_dist_path = nx();
     }
     if (N == 0 || D == 0 || Q == 0 || basis_path.empty() || queries_path.empty()) {
         if (rank == 0) std::fprintf(stderr, "arg kurang (--basis --queries --n --d --q)\n");
@@ -151,6 +152,13 @@ int main(int argc, char** argv) {
             for (std::size_t i = 0; i < Q * K; ++i) idx[i] = merged[i].index;
             FILE* f = std::fopen(dump_path.c_str(), "wb");
             if (f) { std::fwrite(idx.data(), sizeof(std::int32_t), idx.size(), f); std::fclose(f); }
+        }
+        if (!dump_dist_path.empty()) {
+            // dump dist2 (Q x K) float32 agar adapter service bisa membentuk Neighbor
+            std::vector<float> dist(Q * K);
+            for (std::size_t i = 0; i < Q * K; ++i) dist[i] = merged[i].dist2;
+            FILE* f = std::fopen(dump_dist_path.c_str(), "wb");
+            if (f) { std::fwrite(dist.data(), sizeof(float), dist.size(), f); std::fclose(f); }
         }
     }
 

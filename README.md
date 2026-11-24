@@ -35,6 +35,13 @@ results/  raw CSV + report (kpi_summary.json)
 | cuda     | GEMM + shared memory + parallel reduction     | K2, K3   |
 | mpi      | sharding + Gather (exact, out-of-core)        | K7       |
 
+Engine `mpi` juga diekspos ke aplikasi SIKA: bila `mpirun` dan
+`engine/build/mpi_bench` tersedia, `mpi` muncul di `GET /engines` dan bisa dipilih
+lewat `POST /engine` atau UI. Adapter menjalankan `mpi_bench` sebagai subprocess
+(lalu membaca dump idx+dist2), sehingga hasil top-k identik baseline. Bila MPI
+tidak terpasang, `mpi` tidak ditampilkan dan service tetap normal. Atur proses
+dengan `SIKA_MPI_PROCS` (default 4) dan biner lewat `SIKA_MPI_BIN`.
+
 ## Environment
 
 - WSL2 Ubuntu 24.04, gcc 13, cmake, OpenMPI, CUDA Toolkit (opsional)
@@ -83,13 +90,22 @@ Bila provider gagal / rate-limit (429), service otomatis fallback ke jawaban
 ## Evaluasi & kriteria kelulusan (Tabel 4.2)
 
 ```bash
-# rangkum K1..K7 (butuh data uji; lihat scripts/evaluate_all.py)
-python scripts/evaluate_all.py --n 100000 --d 384 --q 1000 --k 10 --reps 3
+# rangkum K1..K7 pada N=500.000, median 5 ulangan (default sesuai Tabel 4.2),
+# sekaligus ukur K4 resmi (p95 POST /search) via service:
+python scripts/evaluate_all.py --n 500000 --d 384 --q 1000 --k 10 --reps 5 --k4
+
+# ukur K4 saja (menyalakan service + override basis besar otomatis):
+python scripts/measure_k4.py --n 500000 --d 384 --requests 300 --engine auto
 
 # recall (K5) antar engine
 python scripts/recall_check.py --from-engines --basis data/out/basis_100000_384.bin \
   --queries data/out/queries_1000_384.bin --n 100000 --d 384 --q 1000 --k 10 --compare openmp
 ```
+
+Catatan VRAM: pada GTX 1650 4 GB, bila memori bebas tidak cukup untuk basis
+N=500.000 (~768 MB), engine `cuda` gagal init; `measure_k4.py` otomatis memilih
+engine terbaik yang benar-benar jalan (openmp) dan mencatat batasan ini tanpa
+menurunkan N.
 
 | Kode | Kriteria | Ambang |
 |------|----------|--------|

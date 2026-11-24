@@ -233,6 +233,8 @@ def _startup():
         try:
             dummy = np.zeros((1, manager.dim), dtype=np.float32)
             for eng in manager.engines():
+                if eng == "mpi":
+                    continue  # adapter subprocess; jangan spawn saat startup
                 manager.search(dummy, 5, eng)
             print(f"[startup] engine warmup selesai untuk {manager.engines()}")
         except Exception as e:  # pragma: no cover

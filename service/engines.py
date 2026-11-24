@@ -7,7 +7,10 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -21,6 +24,13 @@ from config import config  # noqa: E402
 from store import Corpus, load_corpus, load_corpus_meta  # noqa: E402
 
 
+def _mpi_available() -> bool:
+    """MPI dianggap tersedia bila mpirun ada di PATH dan binary mpi_bench ada."""
+    if shutil.which("mpirun") is None:
+        return False
+    return Path(config.mpi_bin).exists()
+
+
 class EngineManager:
     def __init__(self):
         self.engine = sika_engine.SikaEngine()
@@ -28,6 +38,8 @@ class EngineManager:
         self.active: str = "baseline"
         self.source: str = "none"  # "corpus" | "synthetic"
         self._loaded = False
+        self.basis_path: Optional[str] = None  # untuk adapter MPI (butuh file .f32)
+        self._mpi = False
 
     # ---- pemuatan basis ----
     def load(self):
@@ -45,10 +57,8 @@ class EngineManager:
                 self.engine.load_basis_file(override, n, d)
             self.source = "synthetic-bench"
             self.corpus = None
-            avail = self.engine.engines()
-            if self.active not in avail and avail:
-                self.active = avail[0]
-            self._loaded = True
+            self.basis_path = override
+            self._after_load()
             return
 
         if use_mmap:
@@ -58,6 +68,7 @@ class EngineManager:
                 self.corpus = corpus
                 self.engine.load_basis_mmap(str(corpus.vec_path), corpus.n, corpus.dim)
                 self.source = "corpus"
+                self.basis_path = str(corpus.vec_path)
             else:
                 raise RuntimeError(
                     "Mode mmap membutuhkan korpus (.f32 + .json). Jalankan "
@@ -69,6 +80,7 @@ class EngineManager:
                 self.corpus = corpus
                 self.engine.load_basis_array(corpus.matrix, corpus.n, corpus.dim)
                 self.source = "corpus"
+                self.basis_path = str(corpus.vec_path)
             else:
                 # fallback: dataset sintetis kecil agar service tetap bisa jalan
                 basis_path = config.data_dir / "out" / "basis_5000_384.bin"
@@ -79,15 +91,24 @@ class EngineManager:
                     )
                 self.engine.load_basis_file(str(basis_path), 5000, 384)
                 self.source = "synthetic"
+                self.basis_path = str(basis_path)
+        self._after_load()
+
+    def _after_load(self):
+        # Tentukan ketersediaan MPI (adapter subprocess mpi_bench).
+        self._mpi = _mpi_available() and bool(self.basis_path)
         # pilih engine aktif pertama yang tersedia
-        avail = self.engine.engines()
+        avail = self.engines()
         if self.active not in avail and avail:
             self.active = avail[0]
         self._loaded = True
 
     # ---- info ----
     def engines(self) -> List[str]:
-        return self.engine.engines()
+        names = list(self.engine.engines())
+        if self._mpi and "mpi" not in names:
+            names.append("mpi")
+        return names
 
     @property
     def dim(self) -> int:
@@ -98,7 +119,7 @@ class EngineManager:
         return self.engine.n
 
     def set_active(self, name: str):
-        if name not in self.engine.engines():
+        if name not in self.engines():
             raise ValueError(f"engine tidak tersedia: {name}")
         self.active = name
 
@@ -108,10 +129,39 @@ class EngineManager:
         """Return (idx, dist2, elapsed_ms) untuk engine aktif/terpilih."""
         name = engine or self.active
         q = np.ascontiguousarray(queries, dtype=np.float32)
+        if name == "mpi":
+            return self._search_mpi(q, k)
         t0 = time.perf_counter()
         idx, dist = self.engine.search(name, q, k)
         dt = (time.perf_counter() - t0) * 1000.0
         return np.asarray(idx), np.asarray(dist), dt
+
+    def _search_mpi(self, q: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray, float]:
+        """Adapter MPI: jalankan mpi_bench sebagai subprocess, baca dump idx+dist2.
+
+        Menjaga kontrak (Q x k, dist2 menaik) dan sifat exact (identik baseline).
+        """
+        Q, D = q.shape
+        with tempfile.TemporaryDirectory() as td:
+            qpath = os.path.join(td, "q.bin")
+            ipath = os.path.join(td, "idx.bin")
+            dpath = os.path.join(td, "dist.bin")
+            q.astype(np.float32).tofile(qpath)
+            cmd = [
+                "mpirun", "--oversubscribe", "-np", str(config.mpi_procs),
+                config.mpi_bin,
+                "--basis", self.basis_path, "--queries", qpath,
+                "--n", str(self.n), "--d", str(D), "--q", str(Q), "--k", str(k),
+                "--reps", "1", "--dump", ipath, "--dump-dist", dpath,
+            ]
+            t0 = time.perf_counter()
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            dt = (time.perf_counter() - t0) * 1000.0
+            if r.returncode != 0:
+                raise RuntimeError(f"mpi_bench gagal: {r.stderr.strip()[:300]}")
+            idx = np.fromfile(ipath, dtype=np.int32).reshape(Q, k)
+            dist = np.fromfile(dpath, dtype=np.float32).reshape(Q, k)
+        return idx, dist, dt
 
 
 manager = EngineManager()

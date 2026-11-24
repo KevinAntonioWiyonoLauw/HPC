@@ -36,6 +36,11 @@ class Config:
     # = hanya engine (lewati embedding warmup, percepat start); "none" = lewati.
     warmup: str = os.getenv("SIKA_WARMUP", "full").lower()
 
+    # MPI (engine opsional). Adapter menjalankan mpi_bench sebagai subprocess.
+    mpi_procs: int = int(os.getenv("SIKA_MPI_PROCS", "4"))
+    mpi_bin: str = os.getenv(
+        "SIKA_MPI_BIN", str(ROOT / "engine" / "build" / "mpi_bench"))
+
     api_host: str = os.getenv("API_HOST", "127.0.0.1")
     api_port: int = int(os.getenv("API_PORT", "8000"))
 

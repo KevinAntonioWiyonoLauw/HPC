@@ -191,15 +191,33 @@ int cuda_search(const float* basis, std::size_t n, const QueryBatch& batch,
     int chunk = pick_chunk(Q, N, D, k);
     if (chunk > Q) chunk = Q;
 
+    // Alokasi buffer chunk. cudaMemGetInfo di WSL2/drvfs kadang melaporkan ruang
+    // bebas lebih besar dari yang benar-benar bisa dialokasikan, sehingga
+    // pick_chunk bisa terlalu optimistis. Bila alokasi gagal, perkecil chunk dan
+    // coba lagi (hingga 1). Bila tetap gagal, kembalikan error jelas.
     float* d_q = nullptr; float* d_dot = nullptr; float* d_qnorm = nullptr; Neighbor* d_out = nullptr;
-    bool ok = true;
-    ok &= cudaMalloc(&d_q, static_cast<size_t>(chunk) * D * sizeof(float)) == cudaSuccess;
-    ok &= cudaMalloc(&d_dot, static_cast<size_t>(chunk) * N * sizeof(float)) == cudaSuccess;
-    ok &= cudaMalloc(&d_qnorm, static_cast<size_t>(chunk) * sizeof(float)) == cudaSuccess;
-    ok &= cudaMalloc(&d_out, static_cast<size_t>(chunk) * k * sizeof(Neighbor)) == cudaSuccess;
+    auto alloc_chunk = [&](int c) -> bool {
+        d_q = d_dot = nullptr; d_qnorm = nullptr; d_out = nullptr;
+        bool good = true;
+        good &= cudaMalloc(&d_q, static_cast<size_t>(c) * D * sizeof(float)) == cudaSuccess;
+        good &= cudaMalloc(&d_dot, static_cast<size_t>(c) * N * sizeof(float)) == cudaSuccess;
+        good &= cudaMalloc(&d_qnorm, static_cast<size_t>(c) * sizeof(float)) == cudaSuccess;
+        good &= cudaMalloc(&d_out, static_cast<size_t>(c) * k * sizeof(Neighbor)) == cudaSuccess;
+        if (!good) {
+            cudaFree(d_q); cudaFree(d_dot); cudaFree(d_qnorm); cudaFree(d_out);
+            d_q = d_dot = nullptr; d_qnorm = nullptr; d_out = nullptr;
+            return false;
+        }
+        return true;
+    };
+    bool ok = alloc_chunk(chunk);
+    while (!ok && chunk > 1) {
+        cudaGetLastError();  // bersihkan error alokasi sebelumnya
+        chunk = (chunk + 1) / 2;
+        ok = alloc_chunk(chunk);
+    }
     if (!ok) {
-        std::fprintf(stderr, "[cuda] gagal alokasi buffer chunk (chunk=%d, N=%d). VRAM tidak cukup.\n", chunk, N);
-        cudaFree(d_q); cudaFree(d_dot); cudaFree(d_qnorm); cudaFree(d_out);
+        std::fprintf(stderr, "[cuda] gagal alokasi buffer chunk (N=%d). VRAM tidak cukup.\n", N);
         return 3;
     }
 
