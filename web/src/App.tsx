@@ -12,7 +12,7 @@ import {
 } from "recharts";
 
 import {
-  api, AskResp, BenchResp, CacheStats, DocItem, LLMConfig, Neighbor, QueueStats, Status,
+  api, AskResp, BenchResp, CacheStats, DocItem, LLMConfig, Neighbor, QueueStats, SearchResp, Status,
 } from "./api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,7 @@ import {
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // ---------------------------------------------------------------------------
 // util
@@ -386,6 +387,13 @@ function AskPage({ status, engine, engines, setEngine, refreshStatus }: {
   const [useLlm, setUseLlm] = useState(true);
   const [answer, setAnswer] = useState<AskResp | null>(null);
   const [loading, setLoading] = useState(false);
+  // Mode "cari": retrieval murni (POST /search) tanpa LLM, untuk mengukur recall/latensi.
+  // Bisa diatur awal via ?mode=cari (deep-link).
+  const [mode, setMode] = useState<"tanya" | "cari">(
+    new URLSearchParams(window.location.search).get("mode") === "cari" ? "cari" : "tanya"
+  );
+  const [hits, setHits] = useState<SearchResp | null>(null);
+  const [searching, setSearching] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [streamCitations, setStreamCitations] = useState<Neighbor[] | null>(null);
@@ -415,7 +423,7 @@ function AskPage({ status, engine, engines, setEngine, refreshStatus }: {
   }
   function onStream() {
     if (!query.trim() || streaming) return;
-    setStreaming(true); setStreamText(""); setStreamCitations(null); setStreamStatus(""); setAnswer(null);
+    setStreaming(true); setStreamText(""); setStreamCitations(null); setStreamStatus(""); setAnswer(null); setHits(null);
     const started = performance.now();
     abortRef.current = api.askStream(query, k, useLlm, (e) => {
       if (e.type === "citations") setStreamCitations(e.citations);
@@ -426,62 +434,133 @@ function AskPage({ status, engine, engines, setEngine, refreshStatus }: {
   function stopStream() { abortRef.current?.(); abortRef.current = null; setStreaming(false); setStreamStatus((s) => s || "dihentikan pengguna"); }
   async function onAsk() {
     if (!query.trim()) return;
-    setLoading(true); setAnswer(null);
+    setLoading(true); setAnswer(null); setHits(null);
     try { const a = await api.ask(query, k, useLlm); setAnswer(a); pushHistory({ engine: a.engine, retr: a.latency.retrieval_ms, total: a.latency.total_ms, cached: a.cached }); }
     catch (e: any) { toast.error("Permintaan gagal", { description: String(e.message || e) }); }
     finally { setLoading(false); }
+  }
+  // Retrieval saja: tidak memanggil LLM, jadi latensinya murni biaya pencarian.
+  async function onSearch() {
+    if (!query.trim()) return;
+    setSearching(true); setHits(null); setAnswer(null);
+    try {
+      const r = await api.search(query, k, engine);
+      setHits(r);
+      pushHistory({ engine: r.engine, retr: r.retrieval_ms, total: r.retrieval_ms, cached: r.cached });
+    } catch (e: any) {
+      toast.error("Pencarian gagal", { description: String(e.message || e) });
+    } finally { setSearching(false); }
+  }
+  function submit() {
+    if (mode === "cari") onSearch(); else onAsk();
   }
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
       {/* Query console */}
       <section className="panel p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <EnginePills engines={engines} engine={engine} onPick={onSwap} />
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="k" className="text-xs text-muted-foreground">k</Label>
-              <Input id="k" type="number" min={1} max={100} value={k}
-                onChange={(e) => setK(parseInt(e.target.value || "10"))} className="h-8 w-16" />
+        <Tabs value={mode} onValueChange={(v) => {
+          const next = v as "tanya" | "cari";
+          setMode(next); setHits(null); setAnswer(null);
+          const url = new URL(window.location.href);
+          url.searchParams.set("mode", next);
+          window.history.replaceState({ mode: next }, "", url);
+        }}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <TabsList aria-label="Mode permintaan">
+                <TabsTrigger value="tanya" className="gap-1.5"><FileText className="h-3.5 w-3.5" /> Tanya</TabsTrigger>
+                <TabsTrigger value="cari" className="gap-1.5"><Search className="h-3.5 w-3.5" /> Cari</TabsTrigger>
+              </TabsList>
+              <EnginePills engines={engines} engine={engine} onPick={onSwap} />
             </div>
-            <div className="flex items-center gap-1.5">
-              <Switch id="llm" checked={useLlm} onCheckedChange={setUseLlm} />
-              <Label htmlFor="llm" className="text-xs text-muted-foreground">LLM</Label>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="k" className="text-xs text-muted-foreground">k</Label>
+                <Input id="k" type="number" min={1} max={100} value={k}
+                  onChange={(e) => setK(parseInt(e.target.value || "10"))} className="h-8 w-16" />
+              </div>
+              {mode === "tanya" && (
+                <div className="flex items-center gap-1.5">
+                  <Switch id="llm" checked={useLlm} onCheckedChange={setUseLlm} />
+                  <Label htmlFor="llm" className="text-xs text-muted-foreground">LLM</Label>
+                </div>
+              )}
             </div>
           </div>
-        </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input className="h-11 pl-9" placeholder="Tanyakan sesuatu tentang SOP / regulasi kepatuhan…"
-              value={query} onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && onAsk()} />
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input className="h-11 pl-9" placeholder={mode === "cari" ? "Cari pasal dengan kata kunci atau kalimat…" : "Tanyakan sesuatu tentang SOP / regulasi kepatuhan…"}
+                value={query} onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submit()} />
+            </div>
+            <div className="flex gap-2">
+              {mode === "cari" ? (
+                <Button onClick={onSearch} disabled={searching} className="h-11">
+                  {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Cari
+                </Button>
+              ) : (
+                <>
+                  <Button onClick={onAsk} disabled={loading || streaming} className="h-11">
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />} Tanya
+                  </Button>
+                  <Button onClick={streaming ? stopStream : onStream} disabled={loading}
+                    variant={streaming ? "destructive" : "secondary"} className="h-11">
+                    {streaming ? <><Square className="h-4 w-4" /> Stop</> : <><Activity className="h-4 w-4" /> Stream</>}
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button onClick={onAsk} disabled={loading || streaming} className="h-11">
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />} Tanya
-            </Button>
-            <Button onClick={streaming ? stopStream : onStream} disabled={loading}
-              variant={streaming ? "destructive" : "secondary"} className="h-11">
-              {streaming ? <><Square className="h-4 w-4" /> Stop</> : <><Activity className="h-4 w-4" /> Stream</>}
-            </Button>
-          </div>
-        </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><ListChecks className="h-3.5 w-3.5" /> Contoh:</span>
-          {EXAMPLE_QUESTIONS.map((q) => (
-            <button key={q} onClick={() => setQuery(q)}
-              className="rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-              {q.length > 44 ? q.slice(0, 44) + "…" : q}
-            </button>
-          ))}
-        </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><ListChecks className="h-3.5 w-3.5" /> Contoh:</span>
+            {EXAMPLE_QUESTIONS.map((q) => (
+              <button key={q} onClick={() => setQuery(q)}
+                className="rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                {q.length > 44 ? q.slice(0, 44) + "…" : q}
+              </button>
+            ))}
+          </div>
+        </Tabs>
       </section>
 
       <div className="grid gap-4 lg:grid-cols-3">
+        {/* Hasil pencarian (mode Cari) */}
+        {mode === "cari" && (
+          <section className="panel lg:col-span-2">
+            <div className="border-b border-border px-4 py-3">
+              <SectionTitle icon={<Search className="h-4 w-4" />} title="Hasil pencarian"
+                desc="Retrieval exact k-NN tanpa LLM, jadi latensi murni biaya pencarian"
+                right={hits && (
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant="muted" className="font-mono">{ENGINE_LABEL[hits.engine] ?? hits.engine}</Badge>
+                    <Badge variant="outline" className="font-mono tabular-nums">{fmt(hits.retrieval_ms, 3)} ms</Badge>
+                    {hits.cached ? <Badge variant="success">dari cache</Badge> : <Badge variant="outline">hitung baru</Badge>}
+                  </div>
+                )} />
+            </div>
+            <div className="p-4">
+              {!hits && !searching && (
+                <EmptyState icon={<Search className="h-6 w-6" />} title="Belum ada hasil"
+                  desc={`Tulis kata kunci lalu tekan Cari. Hasilnya ${k} pasal terdekat tanpa memanggil LLM.`} />
+              )}
+              {searching && <div className="space-y-2"><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div>}
+              {hits && hits.results.length === 0 && (
+                <EmptyState icon={<Search className="h-6 w-6" />} title="Tidak ada pasal yang cocok"
+                  desc="Coba kata kunci lain atau naikkan nilai k." />
+              )}
+              {hits && hits.results.length > 0 && (
+                <CitationList items={hits.results} favorites={favorites} onCopy={copyRef} onToggleFav={toggleFavorite} />
+              )}
+            </div>
+          </section>
+        )}
+
         {/* Answer */}
+        {mode === "tanya" && (
         <section className="panel lg:col-span-2">
           <div className="border-b border-border px-4 py-3">
             <SectionTitle icon={<FileText className="h-4 w-4" />} title="Jawaban" desc="Bersumber hanya dari kutipan pasal yang ditemukan" />
@@ -533,6 +612,7 @@ function AskPage({ status, engine, engines, setEngine, refreshStatus }: {
             )}
           </div>
         </section>
+        )}
 
         {/* Right rail */}
         <div className="space-y-4">
