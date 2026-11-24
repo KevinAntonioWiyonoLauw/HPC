@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sika_engine  # noqa: E402  (hasil build pybind)
 
 from config import config  # noqa: E402
-from store import Corpus, load_corpus  # noqa: E402
+from store import Corpus, load_corpus, load_corpus_meta  # noqa: E402
 
 
 class EngineManager:
@@ -33,12 +33,16 @@ class EngineManager:
     def load(self):
         if self._loaded:
             return
+        use_mmap = config.load_mode == "mmap"
         # Override untuk benchmark skala besar / K4: muat basis sintetis via env
         override = os.environ.get("SIKA_BASIS_FILE")
         if override and os.path.exists(override):
             n = int(os.environ.get("SIKA_N", "0"))
             d = int(os.environ.get("SIKA_D", "384"))
-            self.engine.load_basis_file(override, n, d)
+            if use_mmap:
+                self.engine.load_basis_mmap(override, n, d)
+            else:
+                self.engine.load_basis_file(override, n, d)
             self.source = "synthetic-bench"
             self.corpus = None
             avail = self.engine.engines()
@@ -47,21 +51,34 @@ class EngineManager:
             self._loaded = True
             return
 
-        corpus = load_corpus(config.embeddings_dir, os.environ.get("SIKA_CORPUS", "sika"))
-        if corpus is not None:
-            self.corpus = corpus
-            self.engine.load_basis_array(corpus.matrix, corpus.n, corpus.dim)
-            self.source = "corpus"
-        else:
-            # fallback: dataset sintetis kecil agar service tetap bisa jalan
-            basis_path = config.data_dir / "out" / "basis_5000_384.bin"
-            if not basis_path.exists():
+        if use_mmap:
+            # Mode mmap: metadata saja, matriks dipetakan langsung dari berkas .f32.
+            corpus = load_corpus_meta(config.embeddings_dir, os.environ.get("SIKA_CORPUS", "sika"))
+            if corpus is not None:
+                self.corpus = corpus
+                self.engine.load_basis_mmap(str(corpus.vec_path), corpus.n, corpus.dim)
+                self.source = "corpus"
+            else:
                 raise RuntimeError(
-                    "Tidak ada korpus maupun dataset sintetis. Jalankan "
-                    "scripts/build_corpus.py atau data/gen_synthetic.py."
+                    "Mode mmap membutuhkan korpus (.f32 + .json). Jalankan "
+                    "scripts/build_corpus.py atau pakai SIKA_LOAD_MODE=preload."
                 )
-            self.engine.load_basis_file(str(basis_path), 5000, 384)
-            self.source = "synthetic"
+        else:
+            corpus = load_corpus(config.embeddings_dir, os.environ.get("SIKA_CORPUS", "sika"))
+            if corpus is not None:
+                self.corpus = corpus
+                self.engine.load_basis_array(corpus.matrix, corpus.n, corpus.dim)
+                self.source = "corpus"
+            else:
+                # fallback: dataset sintetis kecil agar service tetap bisa jalan
+                basis_path = config.data_dir / "out" / "basis_5000_384.bin"
+                if not basis_path.exists():
+                    raise RuntimeError(
+                        "Tidak ada korpus maupun dataset sintetis. Jalankan "
+                        "scripts/build_corpus.py atau data/gen_synthetic.py."
+                    )
+                self.engine.load_basis_file(str(basis_path), 5000, 384)
+                self.source = "synthetic"
         # pilih engine aktif pertama yang tersedia
         avail = self.engine.engines()
         if self.active not in avail and avail:

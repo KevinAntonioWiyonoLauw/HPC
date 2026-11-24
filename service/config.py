@@ -25,6 +25,13 @@ class Config:
     embeddings_dir: Path = data_dir / "embeddings"
     state_dir: Path = (ROOT / os.getenv("STATE_DIR", "state")).resolve()
 
+    # Mode muat basis: "preload" (baca penuh ke RAM) atau "mmap" (petakan berkas).
+    load_mode: str = os.getenv("SIKA_LOAD_MODE", "preload").lower()
+
+    # Batas konkurensi. 0 = tanpa batas. Untuk GPU sebaiknya 1 (serial per device).
+    max_concurrency: int = int(os.getenv("SIKA_MAX_CONCURRENCY", "1"))
+    max_embed_concurrency: int = int(os.getenv("SIKA_MAX_EMBED_CONCURRENCY", "4"))
+
     api_host: str = os.getenv("API_HOST", "127.0.0.1")
     api_port: int = int(os.getenv("API_PORT", "8000"))
 

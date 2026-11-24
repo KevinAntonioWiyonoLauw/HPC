@@ -309,7 +309,7 @@ export default function App() {
                     </Badge>
                   )}
                 </CardTitle>
-                <CardDescription>p50 / p95 (ms) dan QPS, 100 query per engine</CardDescription>
+                <CardDescription>p50 / p95 (ms) dan QPS, 100 query x 3 ulangan per engine (median, dengan warmup)</CardDescription>
               </CardHeader>
               <CardContent>
                 {compareLoading && <div className="space-y-2"><Skeleton className="h-40 w-full" /><Skeleton className="h-4 w-1/2" /></div>}
@@ -395,6 +395,8 @@ function BenchTable({ b }: { b: BenchResp }) {
             ["p95", `${fmt(b.p95_ms)} ms`],
             ["p99", `${fmt(b.p99_ms)} ms`],
             ["QPS", fmt(b.qps, 1)],
+            ...(b.std_ms != null ? [["std latensi", `${fmt(b.std_ms)} ms`] as [string, string]] : []),
+            ...(b.qps_cov != null ? [["variasi QPS", `±${fmt(b.qps_cov * 100, 1)}%`] as [string, string]] : []),
           ].map(([l, v], i, arr) => (
             <tr key={l} className={i < arr.length - 1 ? "border-b" : ""}>
               <td className="px-3 py-2 text-muted-foreground">{l}</td>
@@ -461,6 +463,7 @@ function CompareView({ data }: { data: BenchResp[] }) {
               <TableHead className="text-right">p95 (ms)</TableHead>
               <TableHead className="text-right">p99 (ms)</TableHead>
               <TableHead className="text-right">QPS</TableHead>
+              <TableHead className="text-right">QPS variasi</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -473,6 +476,9 @@ function CompareView({ data }: { data: BenchResp[] }) {
                 <TableCell className="text-right font-mono">{fmt(r.p95_ms, 3)}</TableCell>
                 <TableCell className="text-right font-mono">{fmt(r.p99_ms, 3)}</TableCell>
                 <TableCell className="text-right font-mono">{fmt(r.qps, 1)}</TableCell>
+                <TableCell className="text-right font-mono">
+                  {r.qps_cov != null ? `±${fmt((r.qps_cov ?? 0) * 100, 1)}%` : "-"}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

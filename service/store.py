@@ -29,6 +29,27 @@ class Corpus:
         return self.items[idx].get("text", "")
 
 
+def load_corpus_meta(embeddings_dir: Path, name: str = "sika") -> Optional[Corpus]:
+    """Muat hanya metadata korpus (tanpa matriks vektor).
+
+    Dipakai pada mode mmap: matriks dipetakan langsung dari berkas .f32 oleh
+    engine, sehingga tidak perlu dibaca seluruhnya ke RAM. Mengembalikan Corpus
+    dengan `matrix=None` dan `vec_path` terisi.
+    """
+    vec_path = embeddings_dir / f"{name}.f32"
+    meta_path = embeddings_dir / f"{name}.json"
+    if not vec_path.exists() or not meta_path.exists():
+        return None
+    with open(meta_path, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+    dim = int(meta["dim"])
+    n = int(meta["n"])
+    items = meta["items"]
+    c = Corpus(name, dim, n, items, None)
+    c.vec_path = vec_path
+    return c
+
+
 def load_corpus(embeddings_dir: Path, name: str = "sika") -> Optional[Corpus]:
     vec_path = embeddings_dir / f"{name}.f32"
     meta_path = embeddings_dir / f"{name}.json"
@@ -43,4 +64,6 @@ def load_corpus(embeddings_dir: Path, name: str = "sika") -> Optional[Corpus]:
     if matrix.size < n * dim:
         raise ValueError("ukuran matriks < n*dim")
     matrix = matrix[: n * dim].reshape(n, dim)
-    return Corpus(name, dim, n, items, matrix)
+    c = Corpus(name, dim, n, items, matrix)
+    c.vec_path = vec_path
+    return c

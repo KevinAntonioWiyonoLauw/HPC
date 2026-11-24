@@ -115,3 +115,31 @@ docker compose up -d --build
 # Web: http://localhost:8088   API: http://localhost:8000
 ```
 Detail (GPU, LLM, tanpa-GPU, port) ada di `DOCKER.md`.
+
+## Mode muat basis & konkurensi (service)
+
+- `SIKA_LOAD_MODE` = `preload` (default, baca penuh ke RAM) atau `mmap` (petakan
+  berkas `.f32` langsung, hemat RAM untuk korpus besar). Hasil pencarian identik.
+  Contoh: `SIKA_LOAD_MODE=mmap bash scripts/run_service.sh`.
+- `SIKA_MAX_CONCURRENCY` = batas pencarian engine serentak (default `1`, serial per
+  device; `0` = tanpa batas). Menstabilkan p95/p99 pada beban serentak.
+- `SIKA_MAX_EMBED_CONCURRENCY` = batas embedding serentak (default `4`).
+- Telemetri antrean: `GET /queue/stats` (panjang antrean, waktu tunggu). Mode muat
+  aktif tampil di `GET /status` (`load_mode`).
+
+## Benchmark yang stabil
+
+`POST /bench/compare` mengukur semua engine secara adil: embedding dihitung sekali,
+tiap engine diberi pemanasan (default 20 iterasi) lalu beberapa ulangan (default 3),
+dan statistik diambil dari lintasan ber-QPS median. Respons memuat `qps_cov`
+(koefisien variasi) agar tampak seberapa stabil angka tiap engine. Ini menghindari
+variasi antar-run yang dulu muncul saat `/bench` dipanggil terpisah per engine.
+
+## CI (GitHub Actions)
+
+`.github/workflows/ci.yml` berjalan pada setiap push ke `master` dan pull request:
+build engine (baseline + openmp), uji recall, build binding Python, uji kontrak
+engine, uji unit skrip (`scripts/test_units.py`), dan build web (`npm ci` +
+`npm run build`). Langkah CUDA bersifat opsional (runner berlabel GPU) dan tidak
+menggagalkan CI bila GPU tidak tersedia.
+

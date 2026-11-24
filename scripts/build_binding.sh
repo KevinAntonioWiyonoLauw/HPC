@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
+# Bangun modul Python (pybind11) service/sika_engine*.so.
+# Portabel: berpindah ke root repo berdasarkan lokasi skrip, dan hanya
+# mengaktifkan .venv bila ada (di CI venv diaktifkan oleh langkah sebelumnya).
 set -euo pipefail
-cd /mnt/g/Project/Kuliah/HPC/hpc-knn-sika
-source .venv/bin/activate
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+if [ -f ".venv/bin/activate" ] && [ -z "${VIRTUAL_ENV:-}" ]; then
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+fi
 
 INC=$(python -m pybind11 --includes)
 EXT=$(python -c 'import sysconfig; print(sysconfig.get_config_var("EXT_SUFFIX"))')

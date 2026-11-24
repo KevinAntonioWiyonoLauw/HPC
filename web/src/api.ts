@@ -46,7 +46,15 @@ export interface BenchResp {
   p95_ms: number;
   p99_ms: number;
   mean_ms: number;
+  std_ms?: number;
   qps: number;
+  qps_mean?: number;
+  qps_std?: number;
+  qps_cov?: number;
+  reps?: number;
+  warmup?: number;
+  qps_runs?: number[];
+  error?: string;
 }
 
 export interface LLMConfig {
@@ -81,22 +89,14 @@ export const api = {
   bench: (query: string, n = 100, k = 10, engine?: string) =>
     j<BenchResp>("/bench", { method: "POST", body: JSON.stringify({ query, n, k, engine }) }),
   compare: async (query: string, n = 100, k = 10): Promise<BenchResp[]> => {
-    const { engines } = await j<{ engines: string[]; active: string }>("/engines");
-    const results: BenchResp[] = [];
-    // sekuensial agar tidak saling berebut GPU/CPU (angka tail lebih bersih)
-    for (const e of engines) {
-      try {
-        results.push(
-          await j<BenchResp>("/bench", {
-            method: "POST",
-            body: JSON.stringify({ query, n, k, engine: e }),
-          })
-        );
-      } catch {
-        /* lewati engine yang gagal */
-      }
-    }
-    return results;
+    // Benchmark adil di sisi server: embedding sekali, tiap engine dapat warmup +
+    // ulangan yang sama, statistik median lintasan. Menghindari variasi antar-run
+    // akibat memanggil /bench terpisah untuk tiap engine.
+    const r = await j<{ results: BenchResp[] }>("/bench/compare", {
+      method: "POST",
+      body: JSON.stringify({ query, n, k, reps: 3, warmup: 20 }),
+    });
+    return r.results.filter((x) => !x.error);
   },
   getConfig: () => j<LLMConfig>("/config"),
   setConfig: (c: Partial<LLMConfig>) =>

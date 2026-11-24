@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  engine:
+    name: Engine + binding + uji recall
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pasang dependensi build
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 python3-pip python3-venv
+
+      - name: Build engine baseline + openmp
+        run: make -C engine bench bench_openmp
+
+      - name: Verifikasi engine terdaftar
+        run: ./engine/build/bench_baseline --list
+
+      - name: Buat dataset sintetis kecil
+        run: python3 data/gen_synthetic.py --n 3000 --d 384 --q 200 --outdir data/out
+
+      - name: Uji recall baseline (self-check)
+        run: |
+          ./engine/build/bench_baseline --basis data/out/basis_3000_384.bin \
+            --queries data/out/queries_200_384.bin --n 3000 --d 384 --q 200 --k 10 \
+            --engine baseline --mode batch --reps 1 | tee /tmp/b.txt
+          grep -q "recall_ok=1" /tmp/b.txt
+
+      - name: Uji recall openmp vs baseline
+        run: |
+          ./engine/build/bench_openmp --basis data/out/basis_3000_384.bin \
+            --queries data/out/queries_200_384.bin --n 3000 --d 384 --q 200 --k 10 \
+            --engine openmp --mode batch --reps 1 | tee /tmp/o.txt
+          grep -q "recall_ok=1" /tmp/o.txt
+
+      - name: Build binding Python
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install --upgrade pip
+          pip install pybind11 numpy
+          bash scripts/build_binding.sh
+
+      - name: Uji kontrak engine (baseline + openmp)
+        run: |
+          . .venv/bin/activate
+          python scripts/test_contract.py --basis data/out/basis_3000_384.bin --n 3000 --d 384 --k 10
+
+      - name: Uji unit skrip
+        run: |
+          . .venv/bin/activate
+          python scripts/test_units.py
+
+  web:
+    name: Build web (npm ci + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Typecheck + build
+        run: npm run build
+
+  cuda-optional:
+    name: CUDA (opsional, runner berlabel GPU)
+    runs-on: [self-hosted, gpu]
+    continue-on-error: true
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build engine CUDA
+        run: make -C engine bench_cuda
+      - name: Catatan
+        run: echo "Langkah CUDA opsional. Tidak menggagalkan CI bila GPU tidak tersedia."

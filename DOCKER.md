@@ -45,6 +45,24 @@ environment:
 Bisa juga diubah saat runtime lewat tombol **⚙ Provider** di web.
 Bila provider gagal/rate-limit, jawaban otomatis fallback *extractive*.
 
+## Mode muat basis & konkurensi
+Dua env mengatur pemakaian memori dan stabilitas latensi:
+
+- `SIKA_LOAD_MODE` — `preload` (default, baca seluruh matriks ke RAM) atau `mmap`
+  (petakan berkas `.f32` langsung dari disk, halaman dimuat sesuai kebutuhan).
+  Mode `mmap` menurunkan memori proses untuk korpus besar (N=500.000) dan hasil
+  pencarian identik dengan `preload`. Mode `mmap` membutuhkan korpus `.f32/.json`.
+- `SIKA_MAX_CONCURRENCY` — batas jumlah pencarian engine serentak (default `1`,
+  serial per device; `0` = tanpa batas). Menstabilkan p95/p99 pada beban serentak.
+- `SIKA_MAX_EMBED_CONCURRENCY` — batas embedding serentak (default `4`).
+
+Contoh menjalankan dengan mmap:
+```bash
+SIKA_LOAD_MODE=mmap docker compose up -d
+```
+Metrik antrean (panjang antrean, waktu tunggu rata-rata) tersedia di
+`GET /queue/stats`; mode muat aktif tampil di `GET /status` (`load_mode`).
+
 ## Perintah berguna
 ```bash
 docker compose ps                 # status

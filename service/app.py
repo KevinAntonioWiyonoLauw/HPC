@@ -91,6 +91,7 @@ def _save_state():
 
 # ----------------------------- cache (issue #12) -----------------------------
 from collections import OrderedDict
+import threading
 
 _EMBED_CACHE: "OrderedDict[str, np.ndarray]" = OrderedDict()
 _RETR_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
@@ -120,7 +121,7 @@ def embed_cached(text: str) -> np.ndarray:
     """Embedding satu teks dengan cache LRU."""
     v = _cache_get(_EMBED_CACHE, text)
     if v is None:
-        v = _embedder.encode([text])
+        v = embed_locked([text])
         _cache_put(_EMBED_CACHE, text, v, _EMBED_CAP)
     return v
 
@@ -132,9 +133,82 @@ def search_cached(text: str, k: int, engine: str):
     if hit is not None:
         return hit[0], hit[1], True, 0.0
     q = embed_cached(text)
-    idx, dist, ms = manager.search(q, k, engine)
+    idx, dist, ms = search_locked(q, k, engine)
     _cache_put(_RETR_CACHE, key, (idx, dist), _RETR_CAP)
     return idx, dist, False, ms
+
+
+# --------------------------- konkurensi (issue #14) ---------------------------
+# Engine GPU dipakai bersama; memanggilnya serentak justru membuat ekor latensi
+# membengkak. Semaphore membatasi akses engine (default 1 = serial per device)
+# dan embedding (default 4). Waktu tunggu serta panjang antrean dicatat agar
+# angka p95/p99 jujur.
+
+class _Metrics:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.queue_depth = 0
+        self.max_queue_depth = 0
+        self.total_waits = 0
+        self.total_wait_ms = 0.0
+
+    def enter(self):
+        with self._lock:
+            self.queue_depth += 1
+            self.max_queue_depth = max(self.max_queue_depth, self.queue_depth)
+            self.total_waits += 1
+            return time.perf_counter()
+
+    def leave(self, t0):
+        with self._lock:
+            self.queue_depth -= 1
+            self.total_wait_ms += (time.perf_counter() - t0) * 1000.0
+
+    def snapshot(self):
+        with self._lock:
+            avg = self.total_wait_ms / self.total_waits if self.total_waits else 0.0
+            return {
+                "queue_depth": self.queue_depth,
+                "max_queue_depth": self.max_queue_depth,
+                "total_waits": self.total_waits,
+                "avg_wait_ms": round(avg, 3),
+            }
+
+
+_ENGINE_METRICS = _Metrics()
+_EMBED_METRICS = _Metrics()
+_ENGINE_SEM = threading.BoundedSemaphore(config.max_concurrency) if config.max_concurrency > 0 else None
+_EMBED_SEM = threading.BoundedSemaphore(config.max_embed_concurrency) if config.max_embed_concurrency > 0 else None
+
+
+def embed_locked(texts):
+    """Encode embedding dengan batas konkurensi (bila diaktifkan)."""
+    if _EMBED_SEM is None:
+        return _embedder.encode(texts)
+    t0 = _EMBED_METRICS.enter()
+    with _EMBED_SEM:
+        _EMBED_METRICS.leave(t0)
+        return _embedder.encode(texts)
+
+
+def search_locked(q, k, engine):
+    """manager.search dengan batas konkurensi engine. Return (idx, dist, ms)."""
+    if _ENGINE_SEM is None:
+        return manager.search(q, k, engine)
+    t0 = _ENGINE_METRICS.enter()
+    with _ENGINE_SEM:
+        _ENGINE_METRICS.leave(t0)
+        return manager.search(q, k, engine)
+
+
+@app.get("/queue/stats")
+def queue_stats():
+    return {
+        "engine": _ENGINE_METRICS.snapshot(),
+        "embed": _EMBED_METRICS.snapshot(),
+        "engine_limit": config.max_concurrency,
+        "embed_limit": config.max_embed_concurrency,
+    }
 
 
 @app.on_event("startup")
@@ -181,6 +255,17 @@ class BenchReq(BaseModel):
     k: int = 10
     n: int = 100
     engine: Optional[str] = None
+    reps: int = 3        # jumlah ulangan terukur (median dipakai)
+    warmup: int = 20     # iterasi pemanasan (tidak diukur)
+
+
+class CompareReq(BaseModel):
+    query: str
+    k: int = 10
+    n: int = 100
+    reps: int = 3
+    warmup: int = 20
+    engines: Optional[list] = None
 
 
 class ConfigReq(BaseModel):
@@ -203,7 +288,7 @@ def _encode_query(req: SearchReq) -> np.ndarray:
         return np.asarray([req.vector], dtype=np.float32)
     if not req.query:
         raise HTTPException(400, "butuh 'query' atau 'vector'")
-    return _embedder.encode([req.query])
+    return embed_locked([req.query])
 
 
 def _neighbors_to_dicts(idx_row, dist_row, corpus, k):
@@ -237,6 +322,7 @@ def status():
         "source": manager.source,
         "n": manager.n,
         "dim": manager.dim,
+        "load_mode": config.load_mode,
         "corpus": manager.corpus.name if manager.corpus else None,
         "llm": {
             "base_url": _llm_cfg.base_url,
@@ -276,7 +362,7 @@ def search(req: SearchReq):
     q = _encode_query(req)
     if q.shape[1] != manager.dim:
         raise HTTPException(400, f"dimensi query {q.shape[1]} != basis {manager.dim}")
-    idx, dist, ms = manager.search(q, req.k, req.engine)
+    idx, dist, ms = search_locked(q, req.k, req.engine)
     return {
         "engine": req.engine or manager.active,
         "k": req.k,
@@ -342,26 +428,73 @@ def ask(req: AskReq):
     }
 
 
-@app.post("/bench")
-def bench(req: BenchReq):
-    q = _embedder.encode([req.query])
-    samples = []
-    for _ in range(req.n):
-        _, _, ms = manager.search(q, req.k, req.engine)
-        samples.append(ms)
-    arr = np.array(samples, dtype=np.float64)
-    total = arr.sum()
-    qps = (req.n * 1000.0 / total) if total > 0 else 0.0
+def _bench_engine(q, k: int, engine: Optional[str], n: int, reps: int, warmup: int):
+    """Ukur satu engine dengan pemanasan + beberapa ulangan; median lintasan dipakai.
+
+    Tiap ulangan menjalankan n pencarian dan mencatat latensi per-query. Statistik
+    diambil dari gabungan sampel pada ulangan yang menghasilkan QPS median agar
+    tahan terhadap outlier satu kali jalan (mis. GC, throttle sesaat).
+    """
+    for _ in range(max(0, warmup)):
+        search_locked(q, k, engine)
+
+    runs = []
+    for _ in range(max(1, reps)):
+        samples = []
+        t0 = time.perf_counter()
+        for _ in range(n):
+            _, _, ms = search_locked(q, k, engine)
+            samples.append(ms)
+        wall = (time.perf_counter() - t0) * 1000.0
+        qps = (n * 1000.0 / wall) if wall > 0 else 0.0
+        runs.append((qps, np.array(samples, dtype=np.float64)))
+
+    qps_runs = np.array([r[0] for r in runs], dtype=np.float64)
+    med_qps = float(np.median(qps_runs))
+    # pilih lintasan dengan QPS terdekat ke median sebagai representasi
+    best = min(runs, key=lambda r: abs(r[0] - med_qps))
+    arr = best[1]
+    qps_mean = float(qps_runs.mean())
+    qps_std = float(qps_runs.std(ddof=0))
     return {
-        "engine": req.engine or manager.active,
-        "n": req.n,
-        "k": req.k,
+        "engine": engine or manager.active,
+        "n": n,
+        "k": k,
+        "reps": max(1, reps),
+        "warmup": max(0, warmup),
         "p50_ms": round(float(np.percentile(arr, 50)), 3),
         "p95_ms": round(float(np.percentile(arr, 95)), 3),
         "p99_ms": round(float(np.percentile(arr, 99)), 3),
         "mean_ms": round(float(arr.mean()), 3),
-        "qps": round(qps, 2),
+        "std_ms": round(float(arr.std(ddof=0)), 3),
+        "qps": round(med_qps, 2),
+        "qps_mean": round(qps_mean, 2),
+        "qps_std": round(qps_std, 2),
+        "qps_cov": round(qps_std / qps_mean, 4) if qps_mean > 0 else 0.0,
+        "qps_runs": [round(float(x), 2) for x in qps_runs],
     }
+
+
+@app.post("/bench")
+def bench(req: BenchReq):
+    q = embed_locked([req.query])
+    return _bench_engine(q, req.k, req.engine, req.n, req.reps, req.warmup)
+
+
+@app.post("/bench/compare")
+def bench_compare(req: CompareReq):
+    """Benchmark semua engine secara adil: embedding sekali, tiap engine dapat
+    pemanasan + ulangan yang sama, lalu diurutkan. Jauh lebih stabil daripada
+    memanggil /bench terpisah-pisah dari klien."""
+    q = embed_locked([req.query])
+    names = req.engines or manager.engines()
+    results = []
+    for name in names:
+        try:
+            results.append(_bench_engine(q, req.k, name, req.n, req.reps, req.warmup))
+        except Exception as e:  # lewati engine yang gagal
+            results.append({"engine": name, "error": str(e)})
+    return {"query": req.query, "k": req.k, "results": results}
 
 
 @app.get("/models")
