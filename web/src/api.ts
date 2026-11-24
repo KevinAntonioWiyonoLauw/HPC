@@ -24,6 +24,7 @@ export interface SearchResp {
   engine: string;
   k: number;
   retrieval_ms: number;
+  cached: boolean;
   results: Neighbor[];
 }
 
@@ -32,6 +33,7 @@ export interface AskResp {
   answer: string;
   citations: Neighbor[];
   engine: string;
+  cached: boolean;
   latency: { embed_ms: number; retrieval_ms: number; llm_ms: number; total_ms: number };
   llm_status: string;
 }

@@ -14,6 +14,7 @@
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 namespace {
@@ -159,6 +160,14 @@ static int pick_chunk(int Q, int N, int D, std::size_t k) {
     std::size_t c = avail / perQuery;
     if (c < 1) c = 1;
     if (c > static_cast<std::size_t>(Q)) c = static_cast<std::size_t>(Q);
+
+    // Ukuran chunk dapat diatur lewat env SIKA_CUDA_CHUNK (mis. "64"). Nilai ini
+    // dipakai sebagai batas atas jumlah kueri per chunk; bila VRAM hanya muat
+    // lebih sedikit, nilai hasil hitung VRAM yang dipakai agar tetap tidak OOM.
+    if (const char* env = std::getenv("SIKA_CUDA_CHUNK")) {
+        int want = std::atoi(env);
+        if (want > 0 && static_cast<std::size_t>(want) < c) c = static_cast<std::size_t>(want);
+    }
     return static_cast<int>(c);
 }
 
