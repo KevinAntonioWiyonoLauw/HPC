@@ -25,9 +25,14 @@ services:
       - LLM_MODEL=${LLM_MODEL:-cb/auto}
       - LLM_TIMEOUT_S=${LLM_TIMEOUT_S:-60}
       - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-512}
+      # Folder berkas dokumen (dapat diunggah dari UI) + reindex korpus.
+      - DOCS_DIR=/app/data/jdih_md
     volumes:
       # korpus + data (read-only). Dibangun via scripts/build_corpus.py
       - ./data:/app/data:ro
+      # tulis-aktif: berkas dokumen (unggah) & embeddings (reindex) melewati :ro
+      - ./data/jdih_md:/app/data/jdih_md
+      - ./data/embeddings:/app/data/embeddings
       # state runtime (konfigurasi provider LLM) agar bertahan antar restart
       - ./state:/app/state
     ports:

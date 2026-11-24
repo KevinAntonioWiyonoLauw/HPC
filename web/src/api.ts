@@ -8,6 +8,7 @@ export interface Status {
   n: number;
   dim: number;
   corpus: string | null;
+  load_mode?: string;
   llm: { base_url: string; model: string; api_key: string };
 }
 
@@ -63,6 +64,25 @@ export interface LLMConfig {
   api_key: string;
   max_tokens: number;
   timeout_s: number;
+}
+
+export interface DocItem {
+  name: string;
+  title: string;
+  pasal: number;
+  size: number;
+  modified: number;
+}
+
+export interface DocsList {
+  dir: string;
+  count: number;
+  documents: DocItem[];
+}
+
+export interface ReindexStatus {
+  running: boolean;
+  last: { ok: boolean; tail: string; at: number } | null;
 }
 
 // Kejadian streaming dari POST /ask/stream (SSE).
@@ -148,4 +168,12 @@ export const api = {
   setConfig: (c: Partial<LLMConfig>) =>
     j<LLMConfig>("/config", { method: "POST", body: JSON.stringify(c) }),
   models: () => j<{ models: string[]; current: string }>("/models"),
+  documents: () => j<DocsList>("/documents"),
+  uploadDocument: (payload: { name: string; content: string; title?: string; year?: string; unit?: string }) =>
+    j<{ ok: boolean; document: DocItem }>("/documents", { method: "POST", body: JSON.stringify(payload) }),
+  deleteDocument: (name: string) =>
+    j<{ ok: boolean; deleted: string }>(`/documents/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  reindexDocuments: () =>
+    j<{ ok: boolean; started: boolean }>("/documents/reindex", { method: "POST" }),
+  reindexStatus: () => j<ReindexStatus>("/documents/reindex/status"),
 };

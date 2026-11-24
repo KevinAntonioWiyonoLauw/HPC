@@ -24,6 +24,8 @@ class Config:
     data_dir: Path = (ROOT / os.getenv("DATA_DIR", "data")).resolve()
     embeddings_dir: Path = data_dir / "embeddings"
     state_dir: Path = (ROOT / os.getenv("STATE_DIR", "state")).resolve()
+    # Folder berkas dokumen yang diunggah pengguna (teks pasal/regulasi).
+    docs_dir: Path = (ROOT / os.getenv("DOCS_DIR", "data/jdih_md")).resolve()
 
     # Mode muat basis: "preload" (baca penuh ke RAM) atau "mmap" (petakan berkas).
     load_mode: str = os.getenv("SIKA_LOAD_MODE", "preload").lower()

@@ -18,12 +18,13 @@ import time
 from typing import List, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import json
 import os
+import re
 
 import llm
 from config import config
@@ -284,6 +285,14 @@ class ConfigReq(BaseModel):
     model: Optional[str] = None
     max_tokens: Optional[int] = None
     timeout_s: Optional[float] = None
+
+
+class DocUploadReq(BaseModel):
+    name: str
+    content: str
+    title: Optional[str] = None
+    year: Optional[str] = None
+    unit: Optional[str] = None
 
 
 # ----------------------------- helpers -----------------------------
@@ -556,6 +565,122 @@ def models():
     except llm.LLMError as e:
         raise HTTPException(502, str(e))
     return {"models": ids, "current": _llm_cfg.model}
+
+
+# --------------------------- dokumen (manajemen berkas) ---------------------------
+_DOC_SLUG = re.compile(r"[^a-zA-Z0-9._-]+")
+_reindex_state = {"running": False, "last": None}
+
+
+def _doc_path(name: str):
+    """Resolusi aman nama berkas di dalam docs_dir (cegah path traversal)."""
+    safe = os.path.basename(name)
+    if not safe or safe != name or safe.startswith("."):
+        raise HTTPException(400, "nama berkas tidak valid")
+    return config.docs_dir / safe
+
+
+def _doc_summary(p):
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        text = ""
+    pasal = len(re.findall(r"(?m)^##\s+Pasal", text))
+    # ambil judul dari baris header "# KODE | Judul | Tahun | Unit"
+    title = p.stem
+    for line in text.splitlines():
+        if line.startswith("# "):
+            parts = [x.strip() for x in line[2:].split("|")]
+            if len(parts) >= 2 and parts[1]:
+                title = parts[1]
+            break
+    return {
+        "name": p.name,
+        "title": title,
+        "pasal": pasal,
+        "size": p.stat().st_size,
+        "modified": int(p.stat().st_mtime),
+    }
+
+
+@app.get("/documents")
+def documents_list():
+    d = config.docs_dir
+    d.mkdir(parents=True, exist_ok=True)
+    files = sorted(d.glob("*.md"), key=lambda p: p.name.lower())
+    return {"dir": str(d), "count": len(files), "documents": [_doc_summary(p) for p in files]}
+
+
+@app.post("/documents")
+def documents_upload(req: "DocUploadReq"):
+    config.docs_dir.mkdir(parents=True, exist_ok=True)
+    raw_name = (req.name or "").strip() or "dokumen.md"
+    stem = os.path.splitext(os.path.basename(raw_name))[0]
+    stem = _DOC_SLUG.sub("-", stem).strip("-.") or "dokumen"
+    # Jika konten belum berformat markdown pasal, bungkus dengan header + pasal.
+    content = req.content or ""
+    if not content.lstrip().startswith("#"):
+        title = req.title or stem.replace("-", " ").title()
+        header = f"# {stem.upper()} | {title} | {req.year or ''} | {req.unit or 'Unit Referensi'}"
+        if "## Pasal" in content or re.search(r"(?m)^Pasal\s+\d", content):
+            # konversi baris "Pasal N" menjadi heading markdown
+            body = re.sub(r"(?m)^\s*Pasal\s+(\d+[A-Za-z]?)\s*\.?\s*$", r"## Pasal \1", content)
+        else:
+            body = "## Pasal 1\n" + content.strip()
+        content = header + "\n" + body + "\n"
+    path = config.docs_dir / f"{stem}.md"
+    path.write_text(content, encoding="utf-8")
+    return {"ok": True, "document": _doc_summary(path)}
+
+
+@app.delete("/documents/{name}")
+def documents_delete(name: str):
+    p = _doc_path(name)
+    if not p.exists():
+        raise HTTPException(404, "berkas tidak ditemukan")
+    p.unlink()
+    return {"ok": True, "deleted": name}
+
+
+@app.post("/documents/reindex")
+def documents_reindex(background: "BackgroundTasks"):
+    """Bangun ulang korpus (embedding) dari berkas dokumen + SOP, latar belakang."""
+    if _reindex_state["running"]:
+        raise HTTPException(409, "reindex sedang berjalan")
+
+    def _run():
+        _reindex_state["running"] = True
+        try:
+            import subprocess
+            import sys as _sys
+            script = os.path.join(os.path.dirname(config.data_dir), "scripts", "build_corpus.py")
+            env = dict(os.environ)
+            env["DOCS_DIR"] = str(config.docs_dir)
+            r = subprocess.run(
+                [_sys.executable, script, "--real-dir", str(config.docs_dir),
+                 "--filler", os.environ.get("SIKA_REINDEX_FILLER", "0")],
+                capture_output=True, text=True, env=env, timeout=1800,
+            )
+            _reindex_state["last"] = {
+                "ok": r.returncode == 0,
+                "tail": (r.stdout or r.stderr)[-800:],
+                "at": int(time.time()),
+            }
+            if r.returncode == 0:
+                manager._loaded = False
+                manager.load()
+        except Exception as e:  # pragma: no cover
+            _reindex_state["last"] = {"ok": False, "tail": str(e), "at": int(time.time())}
+        finally:
+            _reindex_state["running"] = False
+
+    background.add_task(_run)
+    return {"ok": True, "started": True}
+
+
+@app.get("/documents/reindex/status")
+def documents_reindex_status():
+    return {"running": _reindex_state["running"], "last": _reindex_state["last"]}
 
 
 @app.get("/config")
