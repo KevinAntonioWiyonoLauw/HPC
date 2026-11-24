@@ -30,11 +30,17 @@ resmi, bukan kanvas AI. Gradient biru-ungu, glow, dan orb blur **dilarang**.
 
 ## Tipografi
 
-- Judul/brand: **serif editorial** (Iowan Old Style / Palatino / Georgia) untuk
-  kesan dokumen resmi. Hanya untuk wordmark dan judul halaman.
-- UI/body: **sans sistem** (system-ui, Segoe UI, Roboto). Tidak memuat font
-  default tren (Inter/Geist/Space Grotesk) sebagai "identitas".
+- **Satu keluarga: Plus Jakarta Sans** (variable, self-hosted lewat
+  `@fontsource-variable/plus-jakarta-sans`). Dipakai untuk wordmark, judul, dan UI
+  agar konsisten dan modern. Di-host sendiri supaya tetap tampil di Docker tanpa
+  internet (bukan menarik font dari CDN).
+- Bobot: 400 untuk body, 500 untuk label/aksi, 600-700 untuk judul. Judul memakai
+  tracking rapat (`-0.014em`) agar tegas tanpa terasa "tebal semua".
 - Angka metrik: `font-variant-numeric: tabular-nums` agar kolom angka rata.
+
+Alasan: satu keluarga grotesk humanis memberi kesan produk modern yang rapi;
+sebelumnya serif + sans sistem terasa dua bahasa. Bukan memakai Inter/Geist
+sebagai "identitas default".
 
 ## Radius, bayangan, gerak
 
@@ -47,13 +53,19 @@ resmi, bukan kanvas AI. Gradient biru-ungu, glow, dan orb blur **dilarang**.
 ## Aturan tata letak
 
 - Shell aplikasi: sidebar navigasi kiri (Tanya, Benchmark, Dokumen, Pengaturan,
-  Ikhtisar) + area kerja. Sidebar menandai halaman aktif dengan aksen, tanpa dot
-  dekoratif.
+  Ikhtisar) + area kerja. Sidebar **bisa dibuka/tutup**: di desktop menyusut jadi
+  rail ikon (lebar 72px) atau melebar penuh (256px) lewat tombol, dan pilihan itu
+  diingat (localStorage). Di layar kecil sidebar menjadi drawer (Radix Dialog/Sheet)
+  dengan overlay, ditutup lewat tombol atau Esc. Sidebar menandai halaman aktif
+  dengan aksen, tanpa dot dekoratif. Saat rail menyempit, tiap ikon memakai tooltip
+  agar label tetap terjangkau.
 - Setiap layar dibangun dari pekerjaannya: layar Tanya berpusat pada kotak tanya
   dan jawaban berkutipan; layar Dokumen berpusat pada daftar berkas dan unggah;
   layar Benchmark pada tabel/grafik perbandingan engine.
 - Data nyata saja. Angka/daftar berasal dari API; bila kosong tampilkan empty state
   yang menjelaskan sebab dan langkah berikutnya, bukan angka palsu.
+- Komponen memakai primitif shadcn/ui di `components/ui` (Radix: Dialog/Sheet,
+  Tooltip, Separator, Switch, Tabs, ScrollArea, dll) agar konsisten dan aksesibel.
 
 ## Kontras (WCAG AA)
 

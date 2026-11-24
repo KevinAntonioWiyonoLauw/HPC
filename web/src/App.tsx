@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   Activity, AlertTriangle, ArrowRight, BarChart3, BookOpen, Check, Copy,
   Cpu, Database, FileText, FolderOpen, Gauge, History, LayoutDashboard,
-  Layers, ListChecks, Loader2, Menu, Moon, RefreshCw, Search, Settings,
-  Square, Star, Sun, Trash2, Trophy, Upload, X,
+  Layers, ListChecks, Loader2, Menu, Moon, PanelLeftClose, PanelLeftOpen,
+  RefreshCw, Search, Settings, Square, Star, Sun, Trash2, Trophy, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -14,6 +14,7 @@ import {
 import {
   api, AskResp, BenchResp, DocItem, LLMConfig, Neighbor, Status,
 } from "./api";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,10 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
+import {
+  Sheet, SheetContent, SheetTitle,
+} from "@/components/ui/sheet";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -102,6 +107,17 @@ export default function App() {
   const [showProvider, setShowProvider] = useState(false);
   const [engine, setEngine] = useState("baseline");
   const [engines, setEngines] = useState<string[]>([]);
+  // Sidebar bisa dibuka/tutup di desktop (rail ikon vs lebar penuh), diingat antar sesi.
+  // Bisa juga diatur awal via ?nav=collapsed|expanded (deep-link).
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    const q = new URLSearchParams(window.location.search).get("nav");
+    if (q === "collapsed") return true;
+    if (q === "expanded") return false;
+    try { return localStorage.getItem("sika:nav-collapsed") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("sika:nav-collapsed", collapsed ? "1" : "0"); } catch {}
+  }, [collapsed]);
 
   async function refreshStatus() {
     try {
@@ -134,37 +150,60 @@ export default function App() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="min-h-screen bg-background text-foreground md:grid md:grid-cols-[252px_1fr]">
-        {/* Sidebar */}
+      <div
+        className={cn(
+          "min-h-screen bg-background text-foreground md:grid md:transition-[grid-template-columns] md:duration-200",
+          collapsed ? "md:grid-cols-[72px_1fr]" : "md:grid-cols-[256px_1fr]"
+        )}
+      >
+        {/* Sidebar desktop: rail ikon (72px) atau lebar penuh (256px) */}
         <aside
-          className={`${navOpen ? "fixed inset-y-0 left-0 z-40 flex" : "hidden"} w-[252px] flex-col border-r border-border bg-card md:static md:flex`}
+          className={cn(
+            "hidden flex-col overflow-hidden border-r border-border bg-card transition-[width] duration-200 md:static md:flex",
+            collapsed ? "md:w-[72px]" : "md:w-[256px]"
+          )}
         >
-          <div className="flex items-center gap-2.5 px-5 py-5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
+          <div className={cn("flex items-center py-4", collapsed ? "justify-center px-2" : "gap-2.5 px-4")}>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <FileText className="h-5 w-5" />
             </div>
-            <div>
-              <div className="font-serif text-lg font-semibold leading-none tracking-tight">SIKA</div>
-              <div className="mt-1 text-[11px] text-muted-foreground">Konsol Kepatuhan Internal</div>
-            </div>
-            <button className="ml-auto rounded-md p-1.5 text-muted-foreground hover:bg-muted md:hidden" onClick={() => setNavOpen(false)} aria-label="Tutup menu">
-              <X className="h-4 w-4" />
-            </button>
+            {!collapsed && (
+              <div className="min-w-0">
+                <div className="font-serif text-lg font-semibold leading-none tracking-tight">SIKA</div>
+                <div className="mt-1 truncate text-[11px] text-muted-foreground">Konsol Kepatuhan Internal</div>
+              </div>
+            )}
           </div>
+          <Separator />
 
-          <nav className="flex flex-1 flex-col gap-0.5 px-3" aria-label="Navigasi utama">
+          <nav className={cn("flex flex-1 flex-col gap-1 py-3", collapsed ? "items-center px-2" : "px-3")} aria-label="Navigasi utama">
             {NAV.map((n) => {
               const active = page === n.key;
+              if (collapsed) {
+                return (
+                  <Tooltip key={n.key}>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => go(n.key)}
+                        aria-current={active ? "page" : undefined}
+                        aria-label={n.label}
+                        className="nav-item h-10 w-10 justify-center px-0"
+                        data-active={active}
+                      >
+                        {n.icon}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{n.label}</TooltipContent>
+                  </Tooltip>
+                );
+              }
               return (
                 <button
                   key={n.key}
-                  onClick={() => { go(n.key); setNavOpen(false); }}
+                  onClick={() => go(n.key)}
                   aria-current={active ? "page" : undefined}
-                  className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
-                    active
-                      ? "bg-accent font-medium text-accent-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
+                  className="nav-item w-full"
+                  data-active={active}
                 >
                   {n.icon}
                   <span>{n.label}</span>
@@ -173,18 +212,79 @@ export default function App() {
             })}
           </nav>
 
-          <div className="border-t border-border px-4 py-3 text-[11px] text-muted-foreground">
-            {status ? (
-              <div className="space-y-1">
-                <div className="flex items-center gap-1.5"><Database className="h-3 w-3" /> {status.corpus ?? status.source}</div>
-                <div className="tabular-nums">N={fmt(status.n, 0)} · D={status.dim}</div>
-                <div className="flex items-center gap-1.5"><Cpu className="h-3 w-3" /> engine: {ENGINE_LABEL[engine] ?? engine}</div>
+          <Separator />
+          <div className={cn("py-3", collapsed ? "px-2" : "px-3")}>
+            {!collapsed && (
+              <div className="mb-2 space-y-1 px-1 text-[11px] text-muted-foreground">
+                {status ? (
+                  <>
+                    <div className="flex items-center gap-1.5"><Database className="h-3 w-3" /> {status.corpus ?? status.source}</div>
+                    <div className="tabular-nums">N={fmt(status.n, 0)} · D={status.dim}</div>
+                    <div className="flex items-center gap-1.5"><Cpu className="h-3 w-3" /> engine: {ENGINE_LABEL[engine] ?? engine}</div>
+                  </>
+                ) : "memuat status…"}
               </div>
-            ) : "memuat status…"}
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setCollapsed((c) => !c)}
+                  aria-label={collapsed ? "Lebarkan sidebar" : "Sempitkan sidebar"}
+                  aria-pressed={collapsed}
+                  className={cn("nav-item", collapsed ? "h-10 w-10 justify-center px-0" : "w-full")}
+                >
+                  {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+                  {!collapsed && <span>Sempitkan</span>}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{collapsed ? "Lebarkan sidebar" : "Sempitkan sidebar"}</TooltipContent>
+            </Tooltip>
           </div>
         </aside>
 
-        {navOpen && <div className="fixed inset-0 z-30 bg-black/30 md:hidden" onClick={() => setNavOpen(false)} />}
+        {/* Sidebar mobile: drawer (Radix Sheet) dengan overlay */}
+        <Sheet open={navOpen} onOpenChange={setNavOpen}>
+          <SheetContent side="left" className="flex w-[280px] flex-col p-0 sm:max-w-[280px]">
+            <SheetTitle className="sr-only">Navigasi</SheetTitle>
+            <div className="flex items-center gap-2.5 px-4 py-4">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <FileText className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="font-serif text-lg font-semibold leading-none tracking-tight">SIKA</div>
+                <div className="mt-1 truncate text-[11px] text-muted-foreground">Konsol Kepatuhan Internal</div>
+              </div>
+            </div>
+            <Separator />
+            <nav className="flex flex-1 flex-col gap-1 px-3 py-3" aria-label="Navigasi utama">
+              {NAV.map((n) => {
+                const active = page === n.key;
+                return (
+                  <button
+                    key={n.key}
+                    onClick={() => { go(n.key); setNavOpen(false); }}
+                    aria-current={active ? "page" : undefined}
+                    className="nav-item w-full"
+                    data-active={active}
+                  >
+                    {n.icon}
+                    <span>{n.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+            <Separator />
+            <div className="px-4 py-3 text-[11px] text-muted-foreground">
+              {status ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5"><Database className="h-3 w-3" /> {status.corpus ?? status.source}</div>
+                  <div className="tabular-nums">N={fmt(status.n, 0)} · D={status.dim}</div>
+                  <div className="flex items-center gap-1.5"><Cpu className="h-3 w-3" /> engine: {ENGINE_LABEL[engine] ?? engine}</div>
+                </div>
+              ) : "memuat status…"}
+            </div>
+          </SheetContent>
+        </Sheet>
 
         {/* Main */}
         <div className="flex min-w-0 flex-col">
