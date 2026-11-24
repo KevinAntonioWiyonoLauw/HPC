@@ -78,6 +78,30 @@ class TestBuildCorpus(unittest.TestCase):
         self.assertEqual(m.group(1), "Pasal 12A")
         self.assertEqual(m.group(2), "Isi pasal")
 
+    def test_fetch_jdih_split_pasal(self):
+        fj = _load_module(os.path.join(ROOT, "scripts", "fetch_jdih.py"), "fetch_jdih")
+        # Teks mirip hasil pdftotext: dasar hukum (referensi Pasal di tengah kalimat
+        # harus diabaikan), lalu pasal-pasal asli.
+        text = (
+            "Menimbang bahwa berdasarkan Pasal 5 ayat (1), Pasal 20 UUD 1945;\n"
+            "MEMUTUSKAN:\n"
+            "Pasal 1\n"
+            "Dalam Undang-Undang ini yang dimaksud dengan data pribadi adalah data\n"
+            "tentang orang perseorangan yang teridentifikasi.\n"
+            "Pasal 2\n"
+            "(1) Undang-Undang ini berlaku untuk pemrosesan data pribadi.\n"
+            "(2) Ketentuan sebagaimana dimaksud pada ayat (1) berlaku umum.\n"
+            "Pasal 3\n"
+            "Pemrosesan data pribadi dilakukan berdasarkan asas pelindungan.\n"
+        )
+        pasal = fj.split_pasal(text)
+        nos = [p[0] for p in pasal]
+        self.assertEqual(nos, ["1", "2", "3"], nos)
+        self.assertTrue(all(len(b) >= 20 for _, b in pasal))
+        md = fj.to_markdown("UU-UJI", "Contoh UU", "2024", "Unit Uji", pasal)
+        self.assertIn("## Pasal 2", md)
+        self.assertTrue(md.startswith("# UU-UJI | Contoh UU | 2024 | Unit Uji"))
+
     def test_ingest_jdih_parse_and_markdown(self):
         ij = _load_module(os.path.join(ROOT, "scripts", "ingest_jdih.py"), "ingest_jdih")
         sample = ("SOP-UJI-01 | Contoh Aturan | 2024 | Unit Uji\n"

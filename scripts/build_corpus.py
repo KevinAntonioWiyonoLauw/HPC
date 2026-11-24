@@ -177,15 +177,28 @@ def build_items(docs):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sop-dir", default=str(ROOT / "data" / "sop_synthetic"))
+    ap.add_argument("--real-dir", default=str(ROOT / "data" / "jdih_md"),
+                    help="folder markdown regulasi publik nyata (hasil fetch_jdih.py)")
     ap.add_argument("--outdir", default=str(ROOT / "data" / "embeddings"))
     ap.add_argument("--name", default="sika")
     ap.add_argument("--filler", type=int, default=0, help="jumlah potongan filler sintetis")
     ap.add_argument("--model", default="sentence-transformers/all-MiniLM-L6-v2")
     args = ap.parse_args()
 
-    docs = load_markdown_docs(Path(args.sop_dir))
+    docs = []
+    # 1) Regulasi publik nyata (sumber utama) bila folder tersedia
+    if args.real_dir and os.path.isdir(args.real_dir):
+        real_docs = load_markdown_docs(Path(args.real_dir))
+        if real_docs:
+            docs += real_docs
+            print(f"Regulasi nyata: {len(real_docs)} dokumen dari {args.real_dir}")
+    # 2) SOP terkurasi / sintetis (untuk pertanyaan demo yang butuh jawaban pasti)
+    curated_docs = load_markdown_docs(Path(args.sop_dir))
+    if curated_docs:
+        docs += curated_docs
+        print(f"SOP terkurasi: {len(curated_docs)} dokumen dari {args.sop_dir}")
     if not docs:
-        print("Folder SOP kosong -> memakai SAMPLE_DOCS bawaan")
+        print("Tidak ada markdown -> memakai SAMPLE_DOCS bawaan")
         docs = SAMPLE_DOCS
 
     items = build_items(docs)
@@ -194,7 +207,7 @@ def main():
         items += gen_filler(args.filler)
     for i, it in enumerate(items):
         it["id"] = i
-    print(f"Potongan: {n_curated} terkurasi + {args.filler} filler = {len(items)}")
+    print(f"Potongan: {n_curated} (nyata+kurasi) + {args.filler} filler = {len(items)}")
 
     from embed import Embedder
     emb = Embedder(args.model, "cpu")

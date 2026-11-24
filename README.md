@@ -170,21 +170,27 @@ menggagalkan CI bila GPU tidak tersedia.
 
 ## Korpus regulasi publik nyata (JDIH)
 
-Korpus demo bawaan memakai SOP terkurasi + potongan sintetis. Untuk memakai
-regulasi publik nyata dari JDIH (mis. https://peraturan.go.id atau JDIH
-kementerian/lembaga), sediakan berkas asli lalu konversi dengan skrip ingest:
+Korpus demo dapat memakai regulasi publik nyata dari JDIH BPK
+(https://peraturan.bpk.go.id). Regulasi perundang-undangan Indonesia berstatus
+dokumen publik sehingga teksnya boleh disimpan untuk reproduksi.
 
+Alur otomatis (dapat diulang, tanpa langkah manual):
 ```bash
-# 1) unduh regulasi sebagai .txt ke data/jdih_raw/ (satu berkas per aturan)
-#    baris pertama opsional: <kode SOP> | <judul> | <tahun> | <unit>
-#    lalu isi pasal: "Pasal 1" ... "Pasal 2" ...
-# 2) konversi ke format markdown SOP
-python scripts/ingest_jdih.py --src data/jdih_raw --out data/sop_synthetic
-# 3) bangun korpus (embedding) lalu evaluasi/laporan seperti biasa
-python scripts/build_corpus.py --filler 20000
-```
+# 1) ambil regulasi nyata per tema (pengadaan, data pribadi, perjalanan dinas):
+#    cari di BPK -> unduh PDF -> pdftotext -> potong per pasal -> markdown
+python scripts/fetch_jdih.py --limit-per-cat 20
+#    -> data/jdih_md/*.md  + data/jdih_raw/manifest.json
 
-Skrip tidak mengarang teks hukum; ia hanya mengubah berkas asli yang diunduh
-menjadi format korpus. Uji cepat parser: `python scripts/ingest_jdih.py --self-test`.
+# 2) bangun korpus: regulasi nyata (utama) + SOP terkurasi + filler untuk skala
+python scripts/build_corpus.py --filler 15000
+```
+`build_corpus.py` memakai `data/jdih_md/` (regulasi nyata) sebagai sumber utama,
+`data/sop_synthetic/` untuk pertanyaan demo yang butuh jawaban pasti, dan filler
+sintetis hanya sebagai penambah skala.
+
+Alternatif manual: taruh berkas `.txt`/`.md` di `data/jdih_raw/` lalu
+`python scripts/ingest_jdih.py --src data/jdih_raw --out data/sop_synthetic`.
+Uji cepat parser: `python scripts/ingest_jdih.py --self-test`.
+
 
 

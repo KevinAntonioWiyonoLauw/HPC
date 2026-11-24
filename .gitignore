@@ -51,3 +51,6 @@ state/
 data/jdih_raw/*.txt
 data/jdih_raw/*.md
 !data/jdih_raw/README.md
+
+# PDF JDIH mentah (besar); teks markdown hasil ekstrak tetap di-commit di data/jdih_md
+data/jdih_raw/pdf/
