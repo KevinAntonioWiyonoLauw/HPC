@@ -78,6 +78,26 @@ class TestBuildCorpus(unittest.TestCase):
         self.assertEqual(m.group(1), "Pasal 12A")
         self.assertEqual(m.group(2), "Isi pasal")
 
+    def test_ingest_jdih_parse_and_markdown(self):
+        ij = _load_module(os.path.join(ROOT, "scripts", "ingest_jdih.py"), "ingest_jdih")
+        sample = ("SOP-UJI-01 | Contoh Aturan | 2024 | Unit Uji\n"
+                  "Pasal 1\nIsi satu.\nPasal 2\nIsi dua.\nPasal 3A\nIsi tiga A.\n")
+        header, pasal = ij.parse_regulation(sample)
+        self.assertEqual(header["sop"], "SOP-UJI-01")
+        self.assertEqual(header["judul"], "Contoh Aturan")
+        self.assertEqual(len(pasal), 3)
+        self.assertEqual(pasal[2][0], "Pasal 3A")
+        md = ij.to_markdown(header, pasal, "contoh")
+        self.assertTrue(md.startswith("# SOP-UJI-01 | Contoh Aturan | 2024 | Unit Uji"))
+        self.assertIn("## Pasal 2", md)
+        # markdown hasil harus terbaca kembali oleh build_corpus
+        import pathlib
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "contoh.md").write_text(md, encoding="utf-8")
+            docs = self.bc.load_markdown_docs(pathlib.Path(d))
+        self.assertEqual(len(docs), 1)
+        self.assertEqual(len(self.bc.build_items(docs)), 3)
+
     def test_sample_docs_nonempty(self):
         self.assertGreater(len(self.bc.SAMPLE_DOCS), 0)
         items = self.bc.build_items(self.bc.SAMPLE_DOCS)

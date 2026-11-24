@@ -46,3 +46,8 @@ Thumbs.db
 
 # State runtime (konfigurasi provider, jangan commit API key)
 state/
+
+# Regulasi JDIH yang diunduh (teks asli, jangan commit)
+data/jdih_raw/*.txt
+data/jdih_raw/*.md
+!data/jdih_raw/README.md
