@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, AlertTriangle, ArrowRight, BarChart3, BookOpen, Check, Copy,
+  Activity, ArrowRight, BarChart3, BookOpen, Copy,
   Cpu, Database, FileText, FolderOpen, Gauge, History, LayoutDashboard,
   Layers, ListChecks, Loader2, Menu, Moon, PanelLeftClose, PanelLeftOpen,
   RefreshCw, Search, Settings, Square, Star, Sun, Trash2, Trophy, Upload,
@@ -12,7 +12,7 @@ import {
 } from "recharts";
 
 import {
-  api, AskResp, BenchResp, DocItem, LLMConfig, Neighbor, Status,
+  api, AskResp, BenchResp, CacheStats, DocItem, LLMConfig, Neighbor, QueueStats, Status,
 } from "./api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import {
   Sheet, SheetContent, SheetTitle,
 } from "@/components/ui/sheet";
@@ -615,6 +618,8 @@ function DocumentsPage({ status, onCorpusChanged }: { status: Status | null; onC
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [reindexing, setReindexing] = useState(false);
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState<"name" | "title" | "pasal" | "size">("name");
 
   async function refresh() {
     setLoading(true);
@@ -651,6 +656,19 @@ function DocumentsPage({ status, onCorpusChanged }: { status: Status | null; onC
   }
 
   const totalPasal = docs?.reduce((s, d) => s + d.pasal, 0) ?? 0;
+  const needle = q.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    const list = (docs ?? []).filter(
+      (d) => !needle || d.name.toLowerCase().includes(needle) || d.title.toLowerCase().includes(needle)
+    );
+    const sorted = [...list].sort((a, b) => {
+      if (sort === "pasal") return b.pasal - a.pasal;
+      if (sort === "size") return b.size - a.size;
+      if (sort === "title") return a.title.localeCompare(b.title, "id");
+      return a.name.localeCompare(b.name, "id");
+    });
+    return sorted;
+  }, [docs, needle, sort]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
@@ -684,36 +702,74 @@ function DocumentsPage({ status, onCorpusChanged }: { status: Status | null; onC
               action={<Button onClick={() => setShowUpload(true)} className="mt-2 gap-1.5"><Upload className="h-4 w-4" /> Unggah dokumen</Button>} />
           )}
           {!loading && docs && docs.length > 0 && (
-            <div className="overflow-hidden rounded-md border border-border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Berkas</TableHead>
-                    <TableHead>Judul</TableHead>
-                    <TableHead className="text-right">Pasal</TableHead>
-                    <TableHead className="text-right">Ukuran</TableHead>
-                    <TableHead className="w-10"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {docs.map((d) => (
-                    <TableRow key={d.name}>
-                      <TableCell className="font-mono text-xs">{d.name}</TableCell>
-                      <TableCell className="max-w-[320px] truncate" title={d.title}>{d.title}</TableCell>
-                      <TableCell className="text-right tabular-nums">{d.pasal}</TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{bytes(d.size)}</TableCell>
-                      <TableCell>
-                        <Tooltip><TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => del(d.name)} aria-label={`Hapus ${d.name}`}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </TooltipTrigger><TooltipContent>Hapus berkas</TooltipContent></Tooltip>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            <>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <div className="relative min-w-[200px] flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    className="h-9 pl-9"
+                    placeholder="Cari nama berkas atau judul"
+                    aria-label="Cari berkas"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="sort" className="text-xs text-muted-foreground">Urutkan</Label>
+                  <Select value={sort} onValueChange={(v) => setSort(v as typeof sort)}>
+                    <SelectTrigger id="sort" className="h-9 w-[132px]" aria-label="Urutkan berkas">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="name">Nama</SelectItem>
+                      <SelectItem value="title">Judul</SelectItem>
+                      <SelectItem value="pasal">Pasal terbanyak</SelectItem>
+                      <SelectItem value="size">Ukuran terbesar</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {needle ? `${filtered.length} dari ${docs.length} berkas` : `${docs.length} berkas`}
+                </span>
+              </div>
+
+              {filtered.length === 0 ? (
+                <EmptyState icon={<Search className="h-6 w-6" />} title="Tidak ada berkas yang cocok"
+                  desc={`Tidak ada nama atau judul yang memuat "${q}".`}
+                  action={<Button variant="outline" className="mt-2" onClick={() => setQ("")}>Hapus filter</Button>} />
+              ) : (
+                <div className="overflow-hidden rounded-md border border-border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Berkas</TableHead>
+                        <TableHead>Judul</TableHead>
+                        <TableHead className="text-right">Pasal</TableHead>
+                        <TableHead className="text-right">Ukuran</TableHead>
+                        <TableHead className="w-10"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filtered.map((d) => (
+                        <TableRow key={d.name}>
+                          <TableCell className="font-mono text-xs">{d.name}</TableCell>
+                          <TableCell className="max-w-[320px] truncate" title={d.title}>{d.title}</TableCell>
+                          <TableCell className="text-right tabular-nums">{d.pasal}</TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{bytes(d.size)}</TableCell>
+                          <TableCell>
+                            <Tooltip><TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => del(d.name)} aria-label={`Hapus ${d.name}`}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </TooltipTrigger><TooltipContent>Hapus berkas</TooltipContent></Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </>
           )}
         </div>
       </section>
@@ -807,10 +863,28 @@ function UploadDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
 // Overview page
 // ---------------------------------------------------------------------------
 function OverviewPage({ status, engines, engine }: { status: Status | null; engines: string[]; engine: string }) {
-  const [queue, setQueue] = useState<any>(null);
-  useEffect(() => {
-    fetch("/api/queue/stats").then((r) => (r.ok ? r.json() : null)).then(setQueue).catch(() => {});
-  }, []);
+  const [queue, setQueue] = useState<QueueStats | null>(null);
+  const [cache, setCache] = useState<CacheStats | null>(null);
+  const [clearing, setClearing] = useState(false);
+
+  async function loadMetrics() {
+    const [q, c] = await Promise.allSettled([api.queueStats(), api.cacheStats()]);
+    setQueue(q.status === "fulfilled" ? q.value : null);
+    setCache(c.status === "fulfilled" ? c.value : null);
+  }
+  useEffect(() => { loadMetrics(); }, []);
+
+  async function clearCache() {
+    setClearing(true);
+    try {
+      await api.clearCache();
+      toast.success("Cache dibersihkan", { description: "Entri embedding dan retrieval dikosongkan." });
+      await loadMetrics();
+    } catch (e: any) {
+      toast.error("Gagal membersihkan cache", { description: String(e.message || e) });
+    } finally { setClearing(false); }
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-4">
       <section className="panel p-5">
@@ -826,7 +900,8 @@ function OverviewPage({ status, engines, engine }: { status: Status | null; engi
       </section>
 
       <section className="panel p-5">
-        <SectionTitle icon={<Cpu className="h-4 w-4" />} title="Antrean & konkurensi" desc="Dari GET /queue/stats" />
+        <SectionTitle icon={<Cpu className="h-4 w-4" />} title="Antrean & konkurensi" desc="Dari GET /queue/stats"
+          right={<Button variant="ghost" size="sm" className="gap-1 text-xs" onClick={loadMetrics}><RefreshCw className="h-3.5 w-3.5" /> Segarkan</Button>} />
         {queue ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label="Batas engine" value={String(queue.engine_limit ?? "-")} hint={`antrean: ${queue.engine?.queue_depth ?? 0}`} />
@@ -836,8 +911,28 @@ function OverviewPage({ status, engines, engine }: { status: Status | null; engi
           </div>
         ) : <p className="text-sm text-muted-foreground">Metrik antrean tidak tersedia.</p>}
       </section>
+
+      <section className="panel p-5">
+        <SectionTitle icon={<Layers className="h-4 w-4" />} title="Cache" desc="Dari GET /cache/stats. Bersihkan untuk mengukur latensi hitung baru."
+          right={<Button variant="outline" size="sm" className="gap-1.5" onClick={clearCache} disabled={clearing || !cache}>
+            {clearing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Bersihkan cache
+          </Button>} />
+        {cache ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat label="Entri embedding" value={`${cache.embed_entries} / ${cache.embed_cap}`} hint={`${pct(cache.embed_entries, cache.embed_cap)} terisi`} />
+            <Stat label="Entri retrieval" value={`${cache.retr_entries} / ${cache.retr_cap}`} hint={`${pct(cache.retr_entries, cache.retr_cap)} terisi`} />
+            <Stat label="Kunci cache" value={String(cache.embed_entries + cache.retr_entries)} hint="embedding + retrieval" />
+            <Stat label="Kapasitas total" value={String(cache.embed_cap + cache.retr_cap)} hint="LRU, dibatasi per proses" />
+          </div>
+        ) : <p className="text-sm text-muted-foreground">Statistik cache tidak tersedia.</p>}
+      </section>
     </div>
   );
+}
+
+function pct(n: number, cap: number) {
+  if (!cap) return "0%";
+  return `${Math.round((n / cap) * 100)}%`;
 }
 
 function Stat({ label, value, hint, mono }: { label: string; value: string; hint?: string; mono?: boolean }) {
@@ -1087,11 +1182,28 @@ function ProviderDialog({ open, onOpenChange, initial, onSaved }: {
 }) {
   const [cfg, setCfg] = useState<LLMConfig>({ base_url: initial?.base_url ?? "http://localhost:12800/v1", model: initial?.model ?? "", api_key: "", max_tokens: 512, timeout_s: 60 });
   const [busy, setBusy] = useState(false);
+  const [models, setModels] = useState<string[] | null>(null);
+  const [fetching, setFetching] = useState(false);
 
   useEffect(() => {
     if (!open) return;
+    setModels(null);
     api.getConfig().then((c) => setCfg((p) => ({ ...p, ...c, api_key: "" }))).catch(() => {});
   }, [open]);
+
+  // Daftar model diambil dari provider memakai konfigurasi TERSIMPAN di server.
+  async function fetchModels() {
+    setFetching(true);
+    try {
+      const r = await api.models();
+      setModels(r.models);
+      if (r.models.length === 0) toast.info("Provider tidak mengembalikan model");
+      else toast.success(`${r.models.length} model tersedia`);
+    } catch (e: any) {
+      setModels(null);
+      toast.error("Gagal mengambil model", { description: String(e.message || e) });
+    } finally { setFetching(false); }
+  }
 
   async function save() {
     setBusy(true);
@@ -1122,8 +1234,46 @@ function ProviderDialog({ open, onOpenChange, initial, onSaved }: {
             <Input id="key" type="password" placeholder="(kosongkan untuk mempertahankan)" value={cfg.api_key} onChange={(e) => setCfg({ ...cfg, api_key: e.target.value })} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="model">Model</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="model">Model</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs"
+                onClick={fetchModels}
+                disabled={fetching}
+              >
+                {fetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                Ambil model
+              </Button>
+            </div>
             <Input id="model" placeholder="mis. cb/auto" value={cfg.model} onChange={(e) => setCfg({ ...cfg, model: e.target.value })} />
+            {models && models.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1" role="group" aria-label="Model tersedia">
+                {models.slice(0, 12).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setCfg((p) => ({ ...p, model: m }))}
+                    aria-pressed={cfg.model === m}
+                    className={`rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                      cfg.model === m
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+                {models.length > 12 && (
+                  <span className="self-center text-[11px] text-muted-foreground">+{models.length - 12} lain</span>
+                )}
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              Daftar model memakai konfigurasi tersimpan. Simpan dulu bila Base URL atau API key baru diubah.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">

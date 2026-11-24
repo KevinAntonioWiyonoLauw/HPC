@@ -85,6 +85,27 @@ export interface ReindexStatus {
   last: { ok: boolean; tail: string; at: number } | null;
 }
 
+export interface CacheStats {
+  embed_entries: number;
+  retr_entries: number;
+  embed_cap: number;
+  retr_cap: number;
+}
+
+export interface QueueStat {
+  queue_depth: number;
+  max_queue_depth: number;
+  total_waits: number;
+  avg_wait_ms: number;
+}
+
+export interface QueueStats {
+  engine: QueueStat;
+  embed: QueueStat;
+  engine_limit: number;
+  embed_limit: number;
+}
+
 // Kejadian streaming dari POST /ask/stream (SSE).
 export type AskStreamEvent =
   | { type: "citations"; engine: string; cached: boolean; retrieval_ms: number; citations: Neighbor[] }
@@ -176,4 +197,8 @@ export const api = {
   reindexDocuments: () =>
     j<{ ok: boolean; started: boolean }>("/documents/reindex", { method: "POST" }),
   reindexStatus: () => j<ReindexStatus>("/documents/reindex/status"),
+  cacheStats: () => j<CacheStats>("/cache/stats"),
+  clearCache: () =>
+    j<{ ok: boolean; embed_entries: number; retr_entries: number }>("/cache/clear", { method: "POST" }),
+  queueStats: () => j<QueueStats>("/queue/stats"),
 };
