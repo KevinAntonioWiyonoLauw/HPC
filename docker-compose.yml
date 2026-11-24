@@ -9,6 +9,7 @@ services:
     container_name: sika-backend
     environment:
       - DATA_DIR=/app/data
+      - STATE_DIR=/app/state
       - OMP_NUM_THREADS=4
       # Provider LLM OpenAI-compatible. Di dalam container, host Windows/WSL
       # diakses via host.docker.internal (bukan localhost).
@@ -20,6 +21,8 @@ services:
     volumes:
       # korpus + data (read-only). Dibangun via scripts/build_corpus.py
       - ./data:/app/data:ro
+      # state runtime (konfigurasi provider LLM) agar bertahan antar restart
+      - ./state:/app/state
     ports:
       - "8000:8000"
     extra_hosts:
@@ -31,6 +34,12 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
     restart: unless-stopped
 
   web:
@@ -42,5 +51,6 @@ services:
     ports:
       - "8088:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped

@@ -43,3 +43,6 @@ Thumbs.db
 *.toc
 *.lof
 *.lot
+
+# State runtime (konfigurasi provider, jangan commit API key)
+state/

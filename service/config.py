@@ -23,6 +23,7 @@ class Config:
     # Path
     data_dir: Path = (ROOT / os.getenv("DATA_DIR", "data")).resolve()
     embeddings_dir: Path = data_dir / "embeddings"
+    state_dir: Path = (ROOT / os.getenv("STATE_DIR", "state")).resolve()
 
     api_host: str = os.getenv("API_HOST", "127.0.0.1")
     api_port: int = int(os.getenv("API_PORT", "8000"))

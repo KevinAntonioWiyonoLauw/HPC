@@ -144,6 +144,24 @@ bool ensure_device(const float* basis, std::size_t n, std::size_t d) {
     return true;
 }
 
+// Menentukan jumlah kueri per chunk agar matriks hasil GEMM (chunk x N) muat VRAM.
+// Buffer basis dan norm sudah menempati VRAM; sisa memori dibagi per kueri dengan
+// menyisakan headroom agar tidak OOM.
+static int pick_chunk(int Q, int N, int D, std::size_t k) {
+    std::size_t freeMem = 0, totalMem = 0;
+    if (cudaMemGetInfo(&freeMem, &totalMem) != cudaSuccess) return Q;
+    const std::size_t headroom = 256ull * 1024 * 1024;  // 256 MB cadangan
+    std::size_t avail = freeMem > headroom ? freeMem - headroom : freeMem / 2;
+    std::size_t perQuery = static_cast<std::size_t>(N) * sizeof(float) +
+                           static_cast<std::size_t>(D) * sizeof(float) +
+                           sizeof(float) + k * sizeof(Neighbor);
+    if (perQuery == 0) return Q;
+    std::size_t c = avail / perQuery;
+    if (c < 1) c = 1;
+    if (c > static_cast<std::size_t>(Q)) c = static_cast<std::size_t>(Q);
+    return static_cast<int>(c);
+}
+
 int cuda_search(const float* basis, std::size_t n, const QueryBatch& batch,
                 std::size_t k, std::vector<Neighbor>& out) {
     if (k > MAXK) { std::fprintf(stderr, "[cuda] k=%zu > MAXK=%d\n", k, MAXK); return 1; }
@@ -159,41 +177,59 @@ int cuda_search(const float* basis, std::size_t n, const QueryBatch& batch,
         qn[i] = s;
     }
 
+    // Ukuran chunk agar d_dot (chunk x N) muat VRAM. Bila seluruh batch muat,
+    // chunk = Q dan perilaku sama seperti sebelumnya (satu GEMM).
+    int chunk = pick_chunk(Q, N, D, k);
+    if (chunk > Q) chunk = Q;
+
     float* d_q = nullptr; float* d_dot = nullptr; float* d_qnorm = nullptr; Neighbor* d_out = nullptr;
     bool ok = true;
-    ok &= cudaMalloc(&d_q, static_cast<size_t>(Q) * D * sizeof(float)) == cudaSuccess;
-    ok &= cudaMalloc(&d_dot, static_cast<size_t>(Q) * N * sizeof(float)) == cudaSuccess;
-    ok &= cudaMalloc(&d_qnorm, static_cast<size_t>(Q) * sizeof(float)) == cudaSuccess;
-    ok &= cudaMalloc(&d_out, static_cast<size_t>(Q) * k * sizeof(Neighbor)) == cudaSuccess;
-    if (!ok) { cudaFree(d_q); cudaFree(d_dot); cudaFree(d_qnorm); cudaFree(d_out); return 3; }
-
-    cudaMemcpy(d_q, batch.data, static_cast<size_t>(Q) * D * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_qnorm, qn.data(), static_cast<size_t>(Q) * sizeof(float), cudaMemcpyHostToDevice);
-
-    // GEMM: dot(N×Q) = basis(N×D) · queries^T(D×Q)  (column-major)
-    const float alpha = 1.0f, beta = 0.0f;
-    cublasStatus_t st = cublasSgemm(g.handle, CUBLAS_OP_T, CUBLAS_OP_N,
-                                    N, Q, D, &alpha,
-                                    g.d_basis, D, d_q, D, &beta, d_dot, N);
-    if (st != CUBLAS_STATUS_SUCCESS) {
-        std::fprintf(stderr, "[cuda] cublasSgemm gagal: %d\n", (int)st);
+    ok &= cudaMalloc(&d_q, static_cast<size_t>(chunk) * D * sizeof(float)) == cudaSuccess;
+    ok &= cudaMalloc(&d_dot, static_cast<size_t>(chunk) * N * sizeof(float)) == cudaSuccess;
+    ok &= cudaMalloc(&d_qnorm, static_cast<size_t>(chunk) * sizeof(float)) == cudaSuccess;
+    ok &= cudaMalloc(&d_out, static_cast<size_t>(chunk) * k * sizeof(Neighbor)) == cudaSuccess;
+    if (!ok) {
+        std::fprintf(stderr, "[cuda] gagal alokasi buffer chunk (chunk=%d, N=%d). VRAM tidak cukup.\n", chunk, N);
         cudaFree(d_q); cudaFree(d_dot); cudaFree(d_qnorm); cudaFree(d_out);
-        return 4;
+        return 3;
     }
 
-    int block = 128;
-    std::size_t shmem = static_cast<std::size_t>(block) * LOCAL_L * sizeof(Neighbor) * 2;
-    topk_kernel<<<Q, block, shmem>>>(d_dot, g.d_norm, d_qnorm, g.d_basis, d_q, N, D,
-                                     static_cast<int>(k), d_out);
-
-    cudaError_t err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) {
-        std::fprintf(stderr, "[cuda] kernel error: %s\n", cudaGetErrorString(err));
-        cudaFree(d_q); cudaFree(d_dot); cudaFree(d_qnorm); cudaFree(d_out);
-        return 5;
-    }
     out.resize(static_cast<size_t>(Q) * k);
-    cudaMemcpy(out.data(), d_out, static_cast<size_t>(Q) * k * sizeof(Neighbor), cudaMemcpyDeviceToHost);
+    const int block = 128;
+    std::size_t shmem = static_cast<std::size_t>(block) * LOCAL_L * sizeof(Neighbor) * 2;
+    const float alpha = 1.0f, beta = 0.0f;
+
+    for (int q0 = 0; q0 < Q; q0 += chunk) {
+        const int qc = (chunk < Q - q0) ? chunk : (Q - q0);
+
+        cudaMemcpy(d_q, batch.data + static_cast<size_t>(q0) * D,
+                   static_cast<size_t>(qc) * D * sizeof(float), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_qnorm, qn.data() + q0,
+                   static_cast<size_t>(qc) * sizeof(float), cudaMemcpyHostToDevice);
+
+        // GEMM: dot(N x qc) = basis(N x D) . queries^T(D x qc)  (column-major)
+        cublasStatus_t st = cublasSgemm(g.handle, CUBLAS_OP_T, CUBLAS_OP_N,
+                                        N, qc, D, &alpha,
+                                        g.d_basis, D, d_q, D, &beta, d_dot, N);
+        if (st != CUBLAS_STATUS_SUCCESS) {
+            std::fprintf(stderr, "[cuda] cublasSgemm gagal: %d\n", (int)st);
+            cudaFree(d_q); cudaFree(d_dot); cudaFree(d_qnorm); cudaFree(d_out);
+            return 4;
+        }
+
+        topk_kernel<<<qc, block, shmem>>>(d_dot, g.d_norm, d_qnorm, g.d_basis, d_q, N, D,
+                                          static_cast<int>(k), d_out);
+        cudaError_t err = cudaDeviceSynchronize();
+        if (err != cudaSuccess) {
+            std::fprintf(stderr, "[cuda] kernel error: %s\n", cudaGetErrorString(err));
+            cudaFree(d_q); cudaFree(d_dot); cudaFree(d_qnorm); cudaFree(d_out);
+            return 5;
+        }
+
+        cudaMemcpy(out.data() + static_cast<size_t>(q0) * k, d_out,
+                   static_cast<size_t>(qc) * k * sizeof(Neighbor), cudaMemcpyDeviceToHost);
+    }
+
     cudaFree(d_q); cudaFree(d_dot); cudaFree(d_qnorm); cudaFree(d_out);
     return 0;
 }

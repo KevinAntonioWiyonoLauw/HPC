@@ -1,0 +1,10 @@
+# Varian CPU: jalankan tanpa GPU.
+#   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build
+# Tag !reset mengosongkan daftar device GPU dari base compose, sehingga backend
+# berjalan dengan engine baseline + openmp saja (engine cuda otomatis tidak ada).
+services:
+  backend:
+    deploy:
+      resources:
+        reservations:
+          devices: !reset []

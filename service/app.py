@@ -22,6 +22,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import json
+import os
+
 import llm
 from config import config
 from embed import Embedder
@@ -42,9 +45,101 @@ _llm_cfg = llm.LLMConfig(
     max_tokens=config.llm_max_tokens,
 )
 
+# Nilai awal dari .env, dipakai untuk reset.
+_ENV_DEFAULTS = {
+    "base_url": config.llm_base_url,
+    "api_key": config.llm_api_key,
+    "model": config.llm_model,
+    "max_tokens": config.llm_max_tokens,
+    "timeout_s": config.llm_timeout_s,
+}
+_STATE_FILE = config.state_dir / "llm.json"
+
+
+def _load_state():
+    """Muat override konfigurasi LLM dari berkas bila ada (persist antar restart)."""
+    if not _STATE_FILE.exists():
+        return
+    try:
+        with open(_STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for key in ("base_url", "api_key", "model", "max_tokens", "timeout_s"):
+            if key in data and data[key] not in (None, ""):
+                setattr(_llm_cfg, key, data[key])
+        print(f"[startup] konfigurasi LLM dimuat dari {_STATE_FILE}")
+    except Exception as e:  # pragma: no cover
+        print(f"[startup] gagal memuat konfigurasi LLM: {e}")
+
+
+def _save_state():
+    """Simpan konfigurasi LLM saat ini ke berkas (API key tidak dicetak ke log)."""
+    try:
+        config.state_dir.mkdir(parents=True, exist_ok=True)
+        tmp = _STATE_FILE.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({
+                "base_url": _llm_cfg.base_url,
+                "api_key": _llm_cfg.api_key,
+                "model": _llm_cfg.model,
+                "max_tokens": _llm_cfg.max_tokens,
+                "timeout_s": _llm_cfg.timeout_s,
+            }, f, indent=2)
+        os.replace(tmp, _STATE_FILE)
+    except Exception as e:  # pragma: no cover
+        print(f"[config] gagal menyimpan konfigurasi LLM: {e}")
+
+
+# ----------------------------- cache (issue #12) -----------------------------
+from collections import OrderedDict
+
+_EMBED_CACHE: "OrderedDict[str, np.ndarray]" = OrderedDict()
+_RETR_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
+_EMBED_CAP = 256
+_RETR_CAP = 512
+
+
+def _corpus_tag() -> str:
+    return f"{manager.source}:{manager.n}:{manager.dim}"
+
+
+def _cache_get(cache, key):
+    if key in cache:
+        cache.move_to_end(key)
+        return cache[key]
+    return None
+
+
+def _cache_put(cache, key, val, cap):
+    cache[key] = val
+    cache.move_to_end(key)
+    while len(cache) > cap:
+        cache.popitem(last=False)
+
+
+def embed_cached(text: str) -> np.ndarray:
+    """Embedding satu teks dengan cache LRU."""
+    v = _cache_get(_EMBED_CACHE, text)
+    if v is None:
+        v = _embedder.encode([text])
+        _cache_put(_EMBED_CACHE, text, v, _EMBED_CAP)
+    return v
+
+
+def search_cached(text: str, k: int, engine: str):
+    """Retrieval untuk teks kueri dengan cache LRU. Return (idx, dist, cached, ms)."""
+    key = (text, k, engine, _corpus_tag())
+    hit = _cache_get(_RETR_CACHE, key)
+    if hit is not None:
+        return hit[0], hit[1], True, 0.0
+    q = embed_cached(text)
+    idx, dist, ms = manager.search(q, k, engine)
+    _cache_put(_RETR_CACHE, key, (idx, dist), _RETR_CAP)
+    return idx, dist, False, ms
+
 
 @app.on_event("startup")
 def _startup():
+    _load_state()
     manager.load()
     # Warmup embedding agar request pertama tidak menanggung biaya muat model.
     try:
@@ -167,6 +262,17 @@ def set_engine(req: EngineReq):
 
 @app.post("/search")
 def search(req: SearchReq):
+    # Jalur vektor langsung (tanpa cache); jalur teks memakai cache LRU.
+    if req.vector is None and req.query:
+        eng = req.engine or manager.active
+        idx, dist, cached, ms = search_cached(req.query, req.k, eng)
+        return {
+            "engine": eng,
+            "k": req.k,
+            "retrieval_ms": 0.0 if cached else round(ms, 3),
+            "cached": cached,
+            "results": _neighbors_to_dicts(idx[0], dist[0], manager.corpus, req.k),
+        }
     q = _encode_query(req)
     if q.shape[1] != manager.dim:
         raise HTTPException(400, f"dimensi query {q.shape[1]} != basis {manager.dim}")
@@ -175,17 +281,31 @@ def search(req: SearchReq):
         "engine": req.engine or manager.active,
         "k": req.k,
         "retrieval_ms": round(ms, 3),
+        "cached": False,
         "results": _neighbors_to_dicts(idx[0], dist[0], manager.corpus, req.k),
     }
+
+
+@app.post("/cache/clear")
+def cache_clear():
+    _EMBED_CACHE.clear()
+    _RETR_CACHE.clear()
+    return {"ok": True, "embed_entries": 0, "retr_entries": 0}
+
+
+@app.get("/cache/stats")
+def cache_stats():
+    return {"embed_entries": len(_EMBED_CACHE), "retr_entries": len(_RETR_CACHE),
+            "embed_cap": _EMBED_CAP, "retr_cap": _RETR_CAP}
 
 
 @app.post("/ask")
 def ask(req: AskReq):
     t0 = time.perf_counter()
-    q = _embedder.encode([req.query])
-    embed_ms = (time.perf_counter() - t0) * 1000.0
-
-    idx, dist, retr_ms = manager.search(q, req.k, None)
+    # Embedding + retrieval memakai cache LRU (teks kueri sebagai kunci).
+    idx, dist, cached, retr_ms = search_cached(req.query, req.k, manager.active)
+    # Embedding kini dilakukan di dalam search_cached; waktunya tercakup di total_ms.
+    embed_ms = 0.0
     neigh = _neighbors_to_dicts(idx[0], dist[0], manager.corpus, req.k)
 
     contexts = [{"text": n["text"], "meta": n["meta"]} for n in neigh]
@@ -211,6 +331,7 @@ def ask(req: AskReq):
         "answer": answer,
         "citations": neigh,
         "engine": manager.active,
+        "cached": cached,
         "latency": {
             "embed_ms": round(embed_ms, 3),
             "retrieval_ms": round(retr_ms, 3),
@@ -275,6 +396,20 @@ def set_config(req: ConfigReq):
         _llm_cfg.max_tokens = req.max_tokens
     if req.timeout_s is not None:
         _llm_cfg.timeout_s = req.timeout_s
+    _save_state()
+    return get_config()
+
+
+@app.post("/config/reset")
+def reset_config():
+    """Kembalikan konfigurasi LLM ke nilai .env dan hapus berkas state."""
+    for key, val in _ENV_DEFAULTS.items():
+        setattr(_llm_cfg, key, val)
+    try:
+        if _STATE_FILE.exists():
+            _STATE_FILE.unlink()
+    except Exception:
+        pass
     return get_config()
 
 

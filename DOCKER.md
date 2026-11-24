@@ -16,12 +16,22 @@ Dua layanan:
 ## Build & jalankan
 ```bash
 docker compose build          # sekali; backend berat (base CUDA + torch)
-docker compose up -d
+docker compose up -d          # web menunggu backend sehat (healthcheck)
+bash scripts/verify_stack.sh  # cek /health /status /search /ask
 ```
 
 Akses:
 - Web  → http://localhost:8088
 - API  → http://localhost:8000  (`/status`, `/search`, `/ask`, `/bench`, ...)
+
+## Tanpa GPU (varian CPU)
+Backend memiliki `healthcheck` pada `GET /health`, dan `web` menunggu
+`backend` berstatus sehat sebelum start. Untuk menjalankan tanpa GPU:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build
+```
+Override `docker-compose.cpu.yml` mengosongkan daftar device GPU, sehingga engine
+`cuda` otomatis tidak tersedia dan hanya `baseline` + `openmp` yang jalan (demo D7).
 
 ## Konfigurasi LLM
 Provider OpenAI-compatible diatur lewat env (lihat `docker-compose.yml`).
@@ -40,14 +50,14 @@ Bila provider gagal/rate-limit, jawaban otomatis fallback *extractive*.
 docker compose ps                 # status
 docker compose logs -f backend    # log backend
 docker compose exec backend nvidia-smi      # cek GPU di dalam container
+bash scripts/verify_stack.sh      # verifikasi endpoint setelah up
 docker compose down               # hentikan
 docker compose up -d --build      # rebuild setelah ubah kode
 ```
 
 ## Catatan
-- **Tanpa GPU**: hapus blok `deploy.resources` pada `backend` di
-  `docker-compose.yml`; engine `cuda` otomatis tidak tersedia, `baseline`/`openmp`
-  tetap jalan (demo D7).
+- **Tanpa GPU**: pakai `docker-compose.cpu.yml` (lihat di atas); engine `cuda`
+  otomatis tidak tersedia, `baseline`/`openmp` tetap jalan (demo D7).
 - **Port**: backend `8000`, web `8088` (ubah di `docker-compose.yml` bila bentrok;
   mis. jika `8088` terpakai, ganti ke port lain).
 - **Data**: `./data` dipasang read-only ke `/app/data`. Matriks `data/out` (uji
