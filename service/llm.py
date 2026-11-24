@@ -7,6 +7,7 @@ jawaban extractive dari konteks retrieval agar demo tetap berjalan offline.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -85,6 +86,52 @@ def chat(cfg: LLMConfig, system: str, user: str) -> str:
         return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError):
         raise LLMError(f"respons tidak terduga: {str(data)[:300]}")
+
+
+def chat_stream(cfg: LLMConfig, system: str, user: str):
+    """Generator: streaming token dari {base}/v1/chat/completions (stream=True).
+
+    Yield potongan teks (delta) saat tiba. Bila provider tidak mendukung streaming
+    atau gagal di tengah jalan, pemanggil dapat menangani LLMError dan beralih ke
+    fallback extractive.
+    """
+    url = _norm_base(cfg.base_url) + "/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if cfg.api_key:
+        headers["Authorization"] = f"Bearer {cfg.api_key}"
+    payload = {
+        "model": cfg.model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "max_tokens": cfg.max_tokens,
+        "temperature": 0.2,
+        "stream": True,
+    }
+    try:
+        with httpx.stream("POST", url, json=payload, headers=headers,
+                          timeout=cfg.timeout_s) as r:
+            if r.status_code == 429:
+                raise LLMError("rate limit (429) pada provider", 429)
+            if r.status_code != 200:
+                raise LLMError(f"chat/completions HTTP {r.status_code}", r.status_code)
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                if line.startswith("data:"):
+                    line = line[5:].strip()
+                if line == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(line)
+                    delta = obj["choices"][0].get("delta", {}).get("content")
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
+                if delta:
+                    yield delta
+    except httpx.HTTPError as e:
+        raise LLMError(f"gagal koneksi ke provider: {e}")
 
 
 def extractive_answer(question: str, passages: List[str]) -> str:

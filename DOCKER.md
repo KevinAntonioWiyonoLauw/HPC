@@ -55,6 +55,11 @@ Dua env mengatur pemakaian memori dan stabilitas latensi:
 - `SIKA_MAX_CONCURRENCY` — batas jumlah pencarian engine serentak (default `1`,
   serial per device; `0` = tanpa batas). Menstabilkan p95/p99 pada beban serentak.
 - `SIKA_MAX_EMBED_CONCURRENCY` — batas embedding serentak (default `4`).
+- `SIKA_WARMUP` — `full` (default: embedding + engine), `engine` (lewati warmup
+  embedding), atau `none` (lewati semua). `none` mempercepat start (~8,6 s vs
+  ~45 s) dengan model embedding dimuat lazy saat permintaan pertama.
+- `SIKA_QBLK` — ukuran blok query engine OpenMP (default `128`, dari sapuan
+  `scripts/bench_qblk.sh`).
 
 Contoh menjalankan dengan mmap:
 ```bash

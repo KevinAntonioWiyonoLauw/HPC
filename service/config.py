@@ -32,6 +32,10 @@ class Config:
     max_concurrency: int = int(os.getenv("SIKA_MAX_CONCURRENCY", "1"))
     max_embed_concurrency: int = int(os.getenv("SIKA_MAX_EMBED_CONCURRENCY", "4"))
 
+    # Warmup saat startup. "full" (default) = embedding + semua engine; "engine"
+    # = hanya engine (lewati embedding warmup, percepat start); "none" = lewati.
+    warmup: str = os.getenv("SIKA_WARMUP", "full").lower()
+
     api_host: str = os.getenv("API_HOST", "127.0.0.1")
     api_port: int = int(os.getenv("API_PORT", "8000"))
 

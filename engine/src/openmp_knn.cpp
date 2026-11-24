@@ -11,15 +11,33 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdlib>
 #include <vector>
 
 namespace {
 
-constexpr std::size_t QBLK = 64;  // jumlah query per blok (tiling)
+constexpr std::size_t QBLK_DEFAULT = 128;  // jumlah query per blok (tiling)
+
+// Ukuran blok dapat diatur lewat env SIKA_QBLK. Nilai bawaan 128 dipilih dari
+// sapuan (scripts/bench_qblk.sh) pada N=100k: D=384 blok 128 tercepat & stabil
+// (~1031 ms) dibanding 16/64; D=768 semua ukuran setara sehingga 128 aman.
+// Dibaca sekali lalu di-cache.
+static std::size_t qblk() {
+    static const std::size_t v = [] {
+        const char* e = std::getenv("SIKA_QBLK");
+        if (e) {
+            long x = std::atol(e);
+            if (x > 0) return static_cast<std::size_t>(x);
+        }
+        return QBLK_DEFAULT;
+    }();
+    return v;
+}
 
 int openmp_search(const float* basis, std::size_t n, const QueryBatch& batch,
                   std::size_t k, std::vector<Neighbor>& out) {
     const std::size_t Q = batch.q, D = batch.d;
+    const std::size_t QBLK = qblk();
     knn::topk_reset(out, Q, k);
 
 #pragma omp parallel for schedule(dynamic)

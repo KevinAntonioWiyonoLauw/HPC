@@ -124,8 +124,18 @@ Detail (GPU, LLM, tanpa-GPU, port) ada di `DOCKER.md`.
 - `SIKA_MAX_CONCURRENCY` = batas pencarian engine serentak (default `1`, serial per
   device; `0` = tanpa batas). Menstabilkan p95/p99 pada beban serentak.
 - `SIKA_MAX_EMBED_CONCURRENCY` = batas embedding serentak (default `4`).
+- `SIKA_WARMUP` = `full` (default), `engine`, atau `none`. `none` mempercepat start
+  (~8,6 s vs ~45 s); model embedding dimuat lazy saat permintaan pertama.
+- `SIKA_QBLK` = ukuran blok query engine OpenMP (default `128`, dipilih dari sapuan
+  `scripts/bench_qblk.sh`).
 - Telemetri antrean: `GET /queue/stats` (panjang antrean, waktu tunggu). Mode muat
   aktif tampil di `GET /status` (`load_mode`).
+
+## Streaming jawaban (SSE)
+
+`POST /ask/stream` mengirim kutipan pasal lebih dulu, lalu token jawaban bertahap
+via Server-Sent Events (event `citations`, `delta`, `done`). Jalur non-streaming
+`POST /ask` tetap ada. UI punya tombol **Stream** (dan **Stop** untuk menghentikan).
 
 ## Benchmark yang stabil
 
@@ -136,7 +146,6 @@ dan statistik diambil dari lintasan ber-QPS median. Respons memuat `qps_cov`
 variasi antar-run yang dulu muncul saat `/bench` dipanggil terpisah per engine.
 
 ## CI (GitHub Actions)
-
 `.github/workflows/ci.yml` berjalan pada setiap push ke `master` dan pull request:
 build engine (baseline + openmp), uji recall, build binding Python, uji kontrak
 engine, uji unit skrip (`scripts/test_units.py`), dan build web (`npm ci` +

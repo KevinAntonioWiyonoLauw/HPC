@@ -16,6 +16,8 @@ services:
       # Batas konkurensi (0 = tanpa batas). GPU sebaiknya serial (1).
       - SIKA_MAX_CONCURRENCY=${SIKA_MAX_CONCURRENCY:-1}
       - SIKA_MAX_EMBED_CONCURRENCY=${SIKA_MAX_EMBED_CONCURRENCY:-4}
+      # Warmup startup: full (embedding+engine) | engine | none (percepat start).
+      - SIKA_WARMUP=${SIKA_WARMUP:-full}
       # Provider LLM OpenAI-compatible. Di dalam container, host Windows/WSL
       # diakses via host.docker.internal (bukan localhost).
       - LLM_BASE_URL=${LLM_BASE_URL_DOCKER:-http://host.docker.internal:12800/v1}

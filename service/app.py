@@ -215,21 +215,29 @@ def queue_stats():
 def _startup():
     _load_state()
     manager.load()
+    t_start = time.perf_counter()
+    mode = config.warmup
     # Warmup embedding agar request pertama tidak menanggung biaya muat model.
-    try:
-        t0 = time.perf_counter()
-        _embedder.encode(["warmup"])
-        print(f"[startup] embedding warmup {time.perf_counter()-t0:.2f}s, dim={_embedder.dim}")
-    except Exception as e:  # pragma: no cover
-        print(f"[startup] embedding warmup gagal: {e}")
+    # Lewati dengan SIKA_WARMUP=engine/none untuk mempercepat siklus evaluasi.
+    if mode == "full":
+        try:
+            t0 = time.perf_counter()
+            _embedder.encode(["warmup"])
+            print(f"[startup] embedding warmup {time.perf_counter()-t0:.2f}s, dim={_embedder.dim}")
+        except Exception as e:  # pragma: no cover
+            print(f"[startup] embedding warmup gagal: {e}")
+    else:
+        print(f"[startup] embedding warmup dilewati (SIKA_WARMUP={mode})")
     # Warmup semua engine (terutama CUDA: inisialisasi context + H2D basis sekali).
-    try:
-        dummy = np.zeros((1, manager.dim), dtype=np.float32)
-        for eng in manager.engines():
-            manager.search(dummy, 5, eng)
-        print(f"[startup] engine warmup selesai untuk {manager.engines()}")
-    except Exception as e:  # pragma: no cover
-        print(f"[startup] engine warmup gagal: {e}")
+    if mode in ("full", "engine"):
+        try:
+            dummy = np.zeros((1, manager.dim), dtype=np.float32)
+            for eng in manager.engines():
+                manager.search(dummy, 5, eng)
+            print(f"[startup] engine warmup selesai untuk {manager.engines()}")
+        except Exception as e:  # pragma: no cover
+            print(f"[startup] engine warmup gagal: {e}")
+    print(f"[startup] total warmup {time.perf_counter()-t_start:.2f}s (mode={mode})")
 
 
 # ----------------------------- models -----------------------------
@@ -426,6 +434,48 @@ def ask(req: AskReq):
         },
         "llm_status": llm_status,
     }
+
+
+@app.post("/ask/stream")
+def ask_stream(req: AskReq):
+    """SSE: kirim kutipan dulu, lalu token jawaban bertahap. Jalur non-stream tetap ada."""
+    from fastapi.responses import StreamingResponse
+
+    def gen():
+        t0 = time.perf_counter()
+        idx, dist, cached, retr_ms = search_cached(req.query, req.k, manager.active)
+        neigh = _neighbors_to_dicts(idx[0], dist[0], manager.corpus, req.k)
+        meta = {
+            "type": "citations", "engine": manager.active, "cached": cached,
+            "retrieval_ms": round(retr_ms, 3), "citations": neigh,
+        }
+        yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
+
+        if not req.use_llm:
+            yield f"data: {json.dumps({'type': 'done', 'llm_status': 'disabled'})}\n\n"
+            return
+
+        contexts = [{"text": n["text"], "meta": n["meta"]} for n in neigh]
+        passages = [n["text"] for n in neigh]
+        user_prompt = llm.build_user_prompt(req.query, contexts)
+        tl = time.perf_counter()
+        produced = False
+        try:
+            for delta in llm.chat_stream(_llm_cfg, llm.SYSTEM_PROMPT, user_prompt):
+                produced = True
+                yield f"data: {json.dumps({'type': 'delta', 'text': delta}, ensure_ascii=False)}\n\n"
+            status = "ok" if produced else "ok-empty"
+        except llm.LLMError as e:
+            if not produced:
+                fb = llm.extractive_answer(req.query, passages)
+                yield f"data: {json.dumps({'type': 'delta', 'text': fb}, ensure_ascii=False)}\n\n"
+            status = f"fallback: {e}"
+        llm_ms = (time.perf_counter() - tl) * 1000.0
+        total_ms = (time.perf_counter() - t0) * 1000.0
+        yield f"data: {json.dumps({'type': 'done', 'llm_status': status, 'llm_ms': round(llm_ms, 3), 'total_ms': round(total_ms, 3)})}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 def _bench_engine(q, k: int, engine: Optional[str], n: int, reps: int, warmup: int):

@@ -65,6 +65,12 @@ export interface LLMConfig {
   timeout_s: number;
 }
 
+// Kejadian streaming dari POST /ask/stream (SSE).
+export type AskStreamEvent =
+  | { type: "citations"; engine: string; cached: boolean; retrieval_ms: number; citations: Neighbor[] }
+  | { type: "delta"; text: string }
+  | { type: "done"; llm_status: string; llm_ms?: number; total_ms?: number };
+
 async function j<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(BASE + url, {
     headers: { "Content-Type": "application/json" },
@@ -86,6 +92,46 @@ export const api = {
     j<SearchResp>("/search", { method: "POST", body: JSON.stringify({ query, k, engine }) }),
   ask: (query: string, k = 10, use_llm = true) =>
     j<AskResp>("/ask", { method: "POST", body: JSON.stringify({ query, k, use_llm }) }),
+  // Streaming SSE: panggil onEvent untuk tiap kejadian. Return fungsi untuk abort.
+  askStream: (
+    query: string,
+    k: number,
+    use_llm: boolean,
+    onEvent: (e: AskStreamEvent) => void,
+  ): (() => void) => {
+    const ctrl = new AbortController();
+    (async () => {
+      const r = await fetch(BASE + "/ask/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, k, use_llm }),
+        signal: ctrl.signal,
+      });
+      if (!r.ok || !r.body) throw new Error(`${r.status}: ${await r.text()}`);
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          const line = part.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          try {
+            onEvent(JSON.parse(line.slice(5).trim()) as AskStreamEvent);
+          } catch {
+            /* abaikan baris tak valid */
+          }
+        }
+      }
+    })().catch((e) => {
+      if ((e as any)?.name !== "AbortError") onEvent({ type: "done", llm_status: `error: ${e}` });
+    });
+    return () => ctrl.abort();
+  },
   bench: (query: string, n = 100, k = 10, engine?: string) =>
     j<BenchResp>("/bench", { method: "POST", body: JSON.stringify({ query, n, k, engine }) }),
   compare: async (query: string, n = 100, k = 10): Promise<BenchResp[]> => {

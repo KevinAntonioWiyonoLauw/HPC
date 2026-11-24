@@ -1,16 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  Activity, ArrowRight, BarChart3, BookOpen, Boxes, FileText, Gauge,
-  Layers, Loader2, Moon, Network, Search, Server, Settings, Sun, Trophy,
+  Activity, ArrowRight, BarChart3, BookOpen, Boxes, Copy, FileText, Gauge,
+  History, Layers, ListChecks, Loader2, Moon, Network, Search, Server, Settings,
+  Square, Star, Sun, Trash2, Trophy,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  Bar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer,
-  Tooltip as RTooltip, XAxis, YAxis,
+  Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ReferenceLine,
+  ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
 } from "recharts";
 
-import { api, AskResp, BenchResp, LLMConfig, Neighbor, Status } from "./api";
-import { Button } from "@/components/ui/button";
+import { api, AskResp, BenchResp, LLMConfig, Neighbor, Status } from "./api";import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,6 +51,57 @@ const ENGINE_COLOR: Record<string, string> = {
   mpi: "#f59e0b",
 };
 
+// Pertanyaan contoh untuk demo/pelatihan (klik untuk mengisi kolom tanya).
+const EXAMPLE_QUESTIONS = [
+  "Apakah pembelian lisensi perangkat lunak senilai 40 juta memerlukan dua penawaran pembanding?",
+  "Berapa uang harian perjalanan dinas luar kota?",
+  "Apakah data pribadi boleh dikirim ke layanan AI publik di luar organisasi?",
+  "Berapa batas waktu pengajuan reimbursement?",
+  "Apa yang harus dilakukan jika terjadi insiden kebocoran data pribadi?",
+  "Berapa lama kata sandi wajib diganti?",
+];
+
+const LS_FAVORITES = "sika:favorites";
+const LS_HISTORY = "sika:history";
+
+// Titik riwayat telemetri (hanya di memori klien, disimpan singkat di localStorage).
+type HistPoint = {
+  t: number;          // urutan
+  engine: string;
+  retr: number;       // latensi retrieval (ms)
+  total: number;      // total (ms)
+  cached: boolean;
+  swap?: boolean;     // true bila titik ini menandai pergantian engine
+};
+
+function loadFavorites(): Set<string> {
+  try {
+    const raw = localStorage.getItem(LS_FAVORITES);
+    if (raw) return new Set(JSON.parse(raw) as string[]);
+  } catch { /* abaikan */ }
+  return new Set();
+}
+
+function saveFavorites(s: Set<string>) {
+  try { localStorage.setItem(LS_FAVORITES, JSON.stringify([...s])); } catch { /* abaikan */ }
+}
+
+function loadHistory(): HistPoint[] {
+  try {
+    const raw = localStorage.getItem(LS_HISTORY);
+    if (raw) return (JSON.parse(raw) as HistPoint[]).slice(-50);
+  } catch { /* abaikan */ }
+  return [];
+}
+
+function saveHistory(h: HistPoint[]) {
+  try { localStorage.setItem(LS_HISTORY, JSON.stringify(h.slice(-50))); } catch { /* abaikan */ }
+}
+
+function favKey(n: Neighbor): string {
+  return `${n.meta.sop ?? ""} ${n.meta.pasal ?? ""}`.trim() || `idx-${n.index}`;
+}
+
 export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [engine, setEngine] = useState("baseline");
@@ -68,6 +119,17 @@ export default function App() {
   const [compareLoading, setCompareLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [dark, setDark] = useState(false);
+  // #17 streaming
+  const [streaming, setStreaming] = useState(false);
+  const [streamText, setStreamText] = useState("");
+  const [streamCitations, setStreamCitations] = useState<Neighbor[] | null>(null);
+  const [streamEngine, setStreamEngine] = useState("");
+  const [streamStatus, setStreamStatus] = useState("");
+  const abortRef = useRef<null | (() => void)>(null);
+  // #18 riwayat telemetri
+  const [history, setHistory] = useState<HistPoint[]>(() => loadHistory());
+  // #19 favorit pasal
+  const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites());
 
   async function refreshStatus() {
     try {
@@ -103,9 +165,75 @@ export default function App() {
       setEngine(r.active);
       toast.success(`Engine → ${r.active}`);
       refreshStatus();
+      pushHistory({ engine: r.active, retr: 0, total: 0, cached: false, swap: true });
     } catch (e: any) {
       toast.error("Gagal tukar engine", { description: String(e.message || e) });
     }
+  }
+
+  function pushHistory(p: Omit<HistPoint, "t">) {
+    setHistory((prev) => {
+      const next = [...prev, { ...p, t: (prev.length ? prev[prev.length - 1].t : 0) + 1 }].slice(-50);
+      saveHistory(next);
+      return next;
+    });
+  }
+
+  function clearHistory() {
+    setHistory([]);
+    saveHistory([]);
+    toast.success("Riwayat telemetri dihapus");
+  }
+
+  function toggleFavorite(n: Neighbor) {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      const key = favKey(n);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      saveFavorites(next);
+      return next;
+    });
+  }
+
+  async function copyRef(n: Neighbor) {
+    const ref = `${n.meta.sop ?? ""} ${n.meta.pasal ?? ""}`.trim();
+    try {
+      await navigator.clipboard.writeText(ref);
+      toast.success(`Rujukan disalin: ${ref}`);
+    } catch {
+      toast.error("Gagal menyalin rujukan");
+    }
+  }
+
+  function onAskStream() {
+    if (!query.trim() || streaming) return;
+    setStreaming(true);
+    setStreamText("");
+    setStreamCitations(null);
+    setStreamEngine("");
+    setStreamStatus("");
+    setAnswer(null);
+    const started = performance.now();
+    abortRef.current = api.askStream(query, k, useLlm, (e) => {
+      if (e.type === "citations") {
+        setStreamCitations(e.citations);
+        setStreamEngine(e.engine);
+      } else if (e.type === "delta") {
+        setStreamText((t) => t + e.text);
+      } else if (e.type === "done") {
+        setStreamStatus(e.llm_status);
+        setStreaming(false);
+        const total = e.total_ms ?? performance.now() - started;
+        pushHistory({ engine: engine, retr: e.llm_ms ?? 0, total, cached: false });
+      }
+    });
+  }
+
+  function stopStream() {
+    abortRef.current?.();
+    abortRef.current = null;
+    setStreaming(false);
+    setStreamStatus((s) => s || "dihentikan pengguna");
   }
 
   async function onAsk() {
@@ -113,7 +241,9 @@ export default function App() {
     setLoading(true);
     setAnswer(null);
     try {
-      setAnswer(await api.ask(query, k, useLlm));
+      const a = await api.ask(query, k, useLlm);
+      setAnswer(a);
+      pushHistory({ engine: a.engine, retr: a.latency.retrieval_ms, total: a.latency.total_ms, cached: a.cached });
     } catch (e: any) {
       toast.error("Permintaan gagal", { description: String(e.message || e) });
     } finally {
@@ -222,8 +352,12 @@ export default function App() {
                   value={query} onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && onAsk()} />
               </div>
-              <Button onClick={onAsk} disabled={loading} className="h-10">
+              <Button onClick={onAsk} disabled={loading || streaming} className="h-10">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />} Tanya
+              </Button>
+              <Button onClick={streaming ? stopStream : onAskStream} disabled={loading}
+                variant={streaming ? "destructive" : "secondary"} className="h-10">
+                {streaming ? <><Square className="h-4 w-4" /> Stop</> : <><Activity className="h-4 w-4" /> Stream</>}
               </Button>
               <Button onClick={onBench} disabled={benchLoading} variant="secondary" className="h-10">
                 {benchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gauge className="h-4 w-4" />} Bench 100×
@@ -231,6 +365,17 @@ export default function App() {
               <Button onClick={onCompare} disabled={compareLoading} variant="outline" className="h-10">
                 {compareLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />} Bandingkan
               </Button>
+            </CardContent>
+            <CardContent className="flex flex-wrap items-center gap-1.5 border-t pt-2 pb-3">
+              <span className="mr-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <ListChecks className="h-3.5 w-3.5" /> Contoh:
+              </span>
+              {EXAMPLE_QUESTIONS.map((q) => (
+                <button key={q} type="button" onClick={() => setQuery(q)}
+                  className="rounded-full border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                  {q.length > 46 ? q.slice(0, 46) + "…" : q}
+                </button>
+              ))}
             </CardContent>
           </Card>
 
@@ -243,7 +388,7 @@ export default function App() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {!answer && !loading && (
+                {!answer && !loading && !streaming && !streamText && (
                   <p className="text-sm text-muted-foreground">Ajukan pertanyaan untuk melihat jawaban beserta kutipan pasal.</p>
                 )}
                 {loading && (
@@ -251,6 +396,28 @@ export default function App() {
                     <Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-full" />
                     <Skeleton className="h-4 w-5/6" /><Skeleton className="h-20 w-full" />
                   </div>
+                )}
+                {/* #17: jawaban streaming */}
+                {(streaming || streamText || streamCitations) && (
+                  <>
+                    {streamCitations && (
+                      <div className="mb-3">
+                        <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+                          <Badge variant="success">kutipan dulu</Badge>
+                          <span>engine {streamEngine} · {streamCitations.length} pasal</span>
+                        </div>
+                        <CitationList items={streamCitations} favorites={favorites}
+                          onCopy={copyRef} onToggleFav={toggleFavorite} />
+                      </div>
+                    )}
+                    <div className="rounded-lg border bg-muted/40 p-4 text-sm leading-relaxed whitespace-pre-wrap">
+                      {streamText || (streaming ? "…" : "")}
+                      {streaming && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-primary align-middle" />}
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground font-mono">
+                      status LLM: {streamStatus || (streaming ? "streaming…" : "")}
+                    </div>
+                  </>
                 )}
                 {answer && (
                   <>
@@ -263,7 +430,10 @@ export default function App() {
                         <TabsTrigger value="citations">Kutipan pasal</TabsTrigger>
                         <TabsTrigger value="latency">Latensi</TabsTrigger>
                       </TabsList>
-                      <TabsContent value="citations"><CitationList items={answer.citations} /></TabsContent>
+                      <TabsContent value="citations">
+                        <CitationList items={answer.citations} favorites={favorites}
+                          onCopy={copyRef} onToggleFav={toggleFavorite} />
+                      </TabsContent>
                       <TabsContent value="latency"><LatencyTable a={answer} /></TabsContent>
                     </Tabs>
                   </>
@@ -281,6 +451,25 @@ export default function App() {
                 </CardHeader>
                 <CardContent>
                   {answer ? <LatencyTable a={answer} /> : <p className="text-sm text-muted-foreground">Belum ada data.</p>}
+                </CardContent>
+              </Card>
+
+              {/* #18: riwayat telemetri (sparkline) */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <History className="h-4 w-4 text-primary" /> Riwayat
+                    </CardTitle>
+                    <Button variant="ghost" size="sm" onClick={clearHistory}
+                      disabled={history.length === 0} className="gap-1 text-xs">
+                      <Trash2 className="h-3.5 w-3.5" /> Hapus
+                    </Button>
+                  </div>
+                  <CardDescription>Latensi (ms) & QPS per permintaan, penanda tukar engine</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <HistorySparkline points={history} />
                 </CardContent>
               </Card>
 
@@ -330,24 +519,104 @@ export default function App() {
   );
 }
 
-function CitationList({ items }: { items: Neighbor[] }) {
+function CitationList({ items, favorites, onCopy, onToggleFav }: {
+  items: Neighbor[];
+  favorites: Set<string>;
+  onCopy: (n: Neighbor) => void;
+  onToggleFav: (n: Neighbor) => void;
+}) {
   return (
     <ScrollArea className="max-h-[420px] pr-3">
       <ol className="space-y-3">
-        {items.map((c) => (
-          <li key={c.rank} className="rounded-lg border p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="success" className="font-mono">{c.meta.sop} {c.meta.pasal}</Badge>
-              <span className="text-xs text-muted-foreground">
-                {c.meta.judul} · {c.meta.tahun} · {c.meta.unit}
-              </span>
-              <Badge variant="outline" className="ml-auto font-mono">d={c.distance.toFixed(4)}</Badge>
-            </div>
-            <p className="mt-2 text-sm leading-relaxed text-foreground/90">{c.text}</p>
-          </li>
-        ))}
+        {items.map((c) => {
+          const key = favKey(c);
+          const fav = favorites.has(key);
+          return (
+            <li key={c.rank} className="rounded-lg border p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="success" className="font-mono">{c.meta.sop} {c.meta.pasal}</Badge>
+                <span className="text-xs text-muted-foreground">
+                  {c.meta.judul} · {c.meta.tahun} · {c.meta.unit}
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <Tooltip><TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onCopy(c)}
+                      aria-label="Salin rujukan pasal">
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger><TooltipContent>Salin rujukan</TooltipContent></Tooltip>
+                  <Tooltip><TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onToggleFav(c)}
+                      aria-label={fav ? "Hapus dari favorit" : "Tandai favorit"}
+                      aria-pressed={fav}>
+                      <Star className={`h-3.5 w-3.5 ${fav ? "fill-amber-400 text-amber-500" : ""}`} />
+                    </Button>
+                  </TooltipTrigger><TooltipContent>{fav ? "Hapus favorit" : "Tandai favorit"}</TooltipContent></Tooltip>
+                  <Badge variant="outline" className="font-mono">d={c.distance.toFixed(4)}</Badge>
+                </div>
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-foreground/90">{c.text}</p>
+            </li>
+          );
+        })}
       </ol>
     </ScrollArea>
+  );
+}
+
+function HistorySparkline({ points }: { points: HistPoint[] }) {
+  if (points.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Belum ada riwayat. Ajukan pertanyaan atau tukar engine untuk mulai merekam.
+      </p>
+    );
+  }
+  const data = points.map((p) => ({
+    t: p.t,
+    latency: p.swap ? null : Math.round(p.total * 100) / 100,
+    qps: p.swap || p.total <= 0 ? null : Math.round((1000 / p.total) * 10) / 10,
+    engine: p.engine,
+    swap: p.swap ? p.engine : null,
+  }));
+  const swaps = points.filter((p) => p.swap);
+  const axis = { fontSize: 11, fill: "hsl(var(--muted-foreground))" } as const;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">Latensi total (ms), lebih kecil lebih baik</p>
+      <ResponsiveContainer width="100%" height={110}>
+        <LineChart data={data} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+          <XAxis dataKey="t" tick={axis} axisLine={false} tickLine={false} />
+          <YAxis tick={axis} axisLine={false} tickLine={false} />
+          <RTooltip contentStyle={{ fontSize: 12 }} />
+          {swaps.map((s) => (
+            <ReferenceLine key={s.t} x={s.t} stroke="hsl(var(--primary))" strokeDasharray="4 2" />
+          ))}
+          <Line type="monotone" dataKey="latency" stroke="hsl(var(--primary))"
+            strokeWidth={2} dot={{ r: 2 }} connectNulls isAnimationActive={false} />
+        </LineChart>
+      </ResponsiveContainer>
+      <p className="text-xs text-muted-foreground">QPS, lebih besar lebih baik</p>
+      <ResponsiveContainer width="100%" height={90}>
+        <LineChart data={data} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+          <XAxis dataKey="t" tick={axis} axisLine={false} tickLine={false} />
+          <YAxis tick={axis} axisLine={false} tickLine={false} />
+          <RTooltip contentStyle={{ fontSize: 12 }} />
+          {swaps.map((s) => (
+            <ReferenceLine key={s.t} x={s.t} stroke="hsl(var(--success))" strokeDasharray="4 2" />
+          ))}
+          <Line type="monotone" dataKey="qps" stroke="hsl(var(--success))"
+            strokeWidth={2} dot={{ r: 2 }} connectNulls isAnimationActive={false} />
+        </LineChart>
+      </ResponsiveContainer>
+      {swaps.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Garis putus-putus menandai pergantian engine: {swaps.map((s) => s.engine).join(", ")}
+        </p>
+      )}
+    </div>
   );
 }
 
