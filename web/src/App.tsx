@@ -53,6 +53,66 @@ function bytes(n: number) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// --- render markdown ringan (tanpa dependensi, tanpa innerHTML) --------------
+// Hanya menangani bentuk yang benar-benar dipakai jawaban LLM: paragraf,
+// **tebal**, `kode`, dan daftar "-". Heading markdown sengaja tidak dirender
+// sebagai heading (prompt melarangnya) agar tampilan tetap konsisten.
+function inlineMd(text: string, keyBase: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0, i = 0, m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith("**")) {
+      nodes.push(<strong key={`${keyBase}-b${i}`} className="font-semibold">{tok.slice(2, -2)}</strong>);
+    } else {
+      nodes.push(
+        <code key={`${keyBase}-c${i}`} className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]">
+          {tok.slice(1, -1)}
+        </code>
+      );
+    }
+    last = m.index + tok.length;
+    i++;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+function Markdown({ text }: { text: string }) {
+  const lines = (text ?? "").replace(/\r\n/g, "\n").split("\n");
+  const blocks: React.ReactNode[] = [];
+  let list: string[] = [];
+  let n = 0;
+  const flushList = () => {
+    if (!list.length) return;
+    const items = list;
+    list = [];
+    blocks.push(
+      <ul key={`ul-${n++}`} className="my-1.5 list-disc space-y-1 pl-5">
+        {items.map((li, i) => <li key={i}>{inlineMd(li, `ul${n}-${i}`)}</li>)}
+      </ul>
+    );
+  };
+  lines.forEach((raw, idx) => {
+    const line = raw.trimEnd();
+    if (!line.trim()) { flushList(); return; }
+    const h = /^#{1,6}\s+(.*)$/.exec(line);
+    if (h) {
+      flushList();
+      blocks.push(<p key={`h-${idx}`} className="mt-3 mb-1 text-sm font-semibold">{inlineMd(h[1], `h${idx}`)}</p>);
+      return;
+    }
+    const b = /^[-*]\s+(.*)$/.exec(line);
+    if (b) { list.push(b[1]); return; }
+    flushList();
+    blocks.push(<p key={`p-${idx}`} className="mb-2 last:mb-0">{inlineMd(line, `p${idx}`)}</p>);
+  });
+  flushList();
+  return <div className="text-sm leading-relaxed">{blocks}</div>;
+}
+
 const ENGINE_LABEL: Record<string, string> = {
   baseline: "Baseline", openmp: "OpenMP", cuda: "CUDA", mpi: "MPI",
 };
@@ -525,6 +585,10 @@ function AskPage({ status, engine, engines, setEngine, refreshStatus }: {
             ))}
           </div>
         </Tabs>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Menyebut nama berkas lengkap (mis. <span className="font-mono">uu-no-27-tahun-2022.md</span>) membuat
+          SIKA membaca seluruh dokumen itu, bukan hanya pasal yang mirip secara makna.
+        </p>
       </section>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -539,6 +603,9 @@ function AskPage({ status, engine, engines, setEngine, refreshStatus }: {
                     <Badge variant="muted" className="font-mono">{ENGINE_LABEL[hits.engine] ?? hits.engine}</Badge>
                     <Badge variant="outline" className="font-mono tabular-nums">{fmt(hits.retrieval_ms, 3)} ms</Badge>
                     {hits.cached ? <Badge variant="success">dari cache</Badge> : <Badge variant="outline">hitung baru</Badge>}
+                    {hits.match === "document" && (
+                      <Badge variant="secondary" title={hits.doc ?? undefined}>cocok nama dokumen</Badge>
+                    )}
                   </div>
                 )} />
             </div>
@@ -583,8 +650,8 @@ function AskPage({ status, engine, engines, setEngine, refreshStatus }: {
                     <CitationList items={streamCitations} favorites={favorites} onCopy={copyRef} onToggleFav={toggleFavorite} />
                   </div>
                 )}
-                <div className="rounded-md border border-border bg-muted/40 p-4 text-sm leading-relaxed whitespace-pre-wrap">
-                  {streamText || (streaming ? "…" : "")}
+                <div className="rounded-md border border-border bg-muted/40 p-4">
+                  {streamText ? <Markdown text={streamText} /> : (streaming ? "…" : "")}
                   {streaming && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-primary align-middle" />}
                 </div>
                 <div className="mt-2 text-xs text-muted-foreground">status LLM: {streamStatus || (streaming ? "streaming…" : "")}</div>
@@ -593,10 +660,15 @@ function AskPage({ status, engine, engines, setEngine, refreshStatus }: {
 
             {answer && (
               <>
-                <div className="rounded-md border border-border bg-muted/40 p-4 text-sm leading-relaxed whitespace-pre-wrap">{answer.answer}</div>
-                <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="rounded-md border border-border bg-muted/40 p-4"><Markdown text={answer.answer} /></div>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span>status LLM: {answer.llm_status}</span>
                   {answer.cached ? <Badge variant="success">dari cache</Badge> : <Badge variant="outline">hitung baru</Badge>}
+                  {answer.match === "document" && (
+                    <Badge variant="secondary" className="gap-1" title={answer.doc ?? undefined}>
+                      cocok nama dokumen
+                    </Badge>
+                  )}
                 </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <div>
@@ -700,6 +772,7 @@ function DocumentsPage({ status, onCorpusChanged }: { status: Status | null; onC
   const [reindexing, setReindexing] = useState(false);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<"name" | "title" | "pasal" | "size">("name");
+  const watchRef = useRef<number | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -709,28 +782,48 @@ function DocumentsPage({ status, onCorpusChanged }: { status: Status | null; onC
   }
   useEffect(() => { refresh(); }, []);
 
+  // Pantau reindex di latar belakang sampai selesai, lalu segarkan daftar.
+  function startWatch(message: string) {
+    setReindexing(true);
+    toast.info(message, { description: "Korpus dibangun ulang di latar belakang; status diperbarui otomatis." });
+    if (watchRef.current) window.clearInterval(watchRef.current);
+    watchRef.current = window.setInterval(async () => {
+      try {
+        const s = await api.reindexStatus();
+        if (s.running) return;
+        if (watchRef.current) window.clearInterval(watchRef.current);
+        watchRef.current = null;
+        setReindexing(false);
+        if (s.last?.ok) {
+          toast.success("Korpus diperbarui", { description: "Dokumen sekarang bisa dicari." });
+          onCorpusChanged();
+        } else {
+          toast.error("Reindex gagal", { description: s.last?.tail?.slice(-160) });
+        }
+        refresh();
+      } catch {
+        if (watchRef.current) window.clearInterval(watchRef.current);
+        watchRef.current = null;
+        setReindexing(false);
+      }
+    }, 2500);
+  }
+  useEffect(() => () => { if (watchRef.current) window.clearInterval(watchRef.current); }, []);
+
   async function del(name: string) {
-    try { await api.deleteDocument(name); toast.success(`Dihapus: ${name}`); refresh(); }
-    catch (e: any) { toast.error("Gagal menghapus", { description: String(e.message || e) }); }
+    try {
+      const r = await api.deleteDocument(name);
+      toast.success(`Dihapus: ${name}`);
+      await refresh();
+      if (r.reindex?.started) startWatch("Indeks diperbarui setelah hapus");
+      else if (r.reindex && !r.reindex.started) toast.info("Reindex sedang berjalan", { description: "Perubahan masuk pada reindex berikutnya." });
+    } catch (e: any) { toast.error("Gagal menghapus", { description: String(e.message || e) }); }
   }
   async function reindex() {
-    setReindexing(true);
     try {
-      await api.reindexDocuments();
-      toast.success("Reindex dimulai", { description: "Korpus dibangun ulang di latar belakang." });
-      // poll status
-      const t = setInterval(async () => {
-        try {
-          const s = await api.reindexStatus();
-          if (!s.running) {
-            clearInterval(t); setReindexing(false);
-            if (s.last?.ok) { toast.success("Reindex selesai"); onCorpusChanged(); refresh(); }
-            else toast.error("Reindex gagal", { description: s.last?.tail?.slice(-160) });
-          }
-        } catch { clearInterval(t); setReindexing(false); }
-      }, 2500);
+      const r = await api.reindexDocuments();
+      startWatch(r.started ? "Reindex dimulai" : "Menunggu reindex yang sedang berjalan");
     } catch (e: any) {
-      setReindexing(false);
       toast.error("Gagal memulai reindex", { description: String(e.message || e) });
     }
   }
@@ -759,7 +852,9 @@ function DocumentsPage({ status, onCorpusChanged }: { status: Status | null; onC
             <div>
               <h2 className="text-sm font-semibold">Berkas dokumen</h2>
               <p className="text-xs text-muted-foreground">
-                {docs ? `${docs.length} berkas · ${fmt(totalPasal, 0)} pasal · korpus aktif ${status?.corpus ?? "-"}` : "memuat…"}
+                {docs
+                  ? `${docs.length} berkas · ${fmt(totalPasal, 0)} pasal · ${docs.filter((d) => d.indexed).length} terindeks · korpus ${status?.corpus ?? "-"}`
+                  : "memuat…"}
               </p>
             </div>
           </div>
@@ -771,6 +866,12 @@ function DocumentsPage({ status, onCorpusChanged }: { status: Status | null; onC
           </div>
         </div>
         <p className="mt-2 break-all text-[11px] text-muted-foreground">Folder: <span className="font-mono">{dir}</span></p>
+        {reindexing && (
+          <div className="mt-3 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Membangun ulang korpus. Dokumen yang baru diunggah belum bisa dicari sampai proses ini selesai.
+          </div>
+        )}
       </section>
 
       <section className="panel">
@@ -824,6 +925,7 @@ function DocumentsPage({ status, onCorpusChanged }: { status: Status | null; onC
                       <TableRow>
                         <TableHead>Berkas</TableHead>
                         <TableHead>Judul</TableHead>
+                        <TableHead>Status</TableHead>
                         <TableHead className="text-right">Pasal</TableHead>
                         <TableHead className="text-right">Ukuran</TableHead>
                         <TableHead className="w-10"></TableHead>
@@ -834,6 +936,15 @@ function DocumentsPage({ status, onCorpusChanged }: { status: Status | null; onC
                         <TableRow key={d.name}>
                           <TableCell className="font-mono text-xs">{d.name}</TableCell>
                           <TableCell className="max-w-[320px] truncate" title={d.title}>{d.title}</TableCell>
+                          <TableCell>
+                            {d.indexed ? (
+                              <Badge variant="success" title={`${d.chunks ?? 0} potongan vektor`}>
+                                terindeks{d.chunks ? ` · ${d.chunks}` : ""}
+                              </Badge>
+                            ) : (
+                              <Badge variant="warning">belum terindeks</Badge>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right tabular-nums">{d.pasal}</TableCell>
                           <TableCell className="text-right tabular-nums text-muted-foreground">{bytes(d.size)}</TableCell>
                           <TableCell>
@@ -855,12 +966,16 @@ function DocumentsPage({ status, onCorpusChanged }: { status: Status | null; onC
       </section>
 
       <UploadDialog open={showUpload} onOpenChange={setShowUpload}
-        onDone={() => { setShowUpload(false); refresh(); }} />
+        onDone={(started) => {
+          setShowUpload(false);
+          refresh();
+          if (started) startWatch("Dokumen diunggah");
+        }} />
     </div>
   );
 }
 
-function UploadDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenChange: (v: boolean) => void; onDone: () => void }) {
+function UploadDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenChange: (v: boolean) => void; onDone: (reindexStarted: boolean) => void }) {
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [year, setYear] = useState("");
@@ -886,9 +1001,13 @@ function UploadDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
     if (!content.trim()) { toast.error("Isi dokumen kosong"); return; }
     setBusy(true);
     try {
-      await api.uploadDocument({ name: name || "dokumen.md", content, title, year, unit });
-      toast.success("Dokumen tersimpan", { description: "Klik Reindex korpus agar ikut terindeks." });
-      onDone();
+      const r = await api.uploadDocument({ name: name || "dokumen.md", content, title, year, unit });
+      toast.success("Dokumen tersimpan", {
+        description: r.reindex?.started
+          ? "Indeks dibangun ulang agar dokumen ini bisa dicari."
+          : "Reindex sedang berjalan; dokumen masuk pada putaran berikutnya.",
+      });
+      onDone(Boolean(r.reindex?.started));
     } catch (e: any) { toast.error("Gagal menyimpan", { description: String(e.message || e) }); }
     finally { setBusy(false); }
   }
@@ -1077,7 +1196,10 @@ function CitationList({ items, favorites, onCopy, onToggleFav }: {
           return (
             <li key={c.rank} className="rounded-md border border-border p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="success" className="font-mono">{c.meta.sop} {c.meta.pasal}</Badge>
+                <Badge variant="success" className="font-mono">
+                  {c.meta.sop} {c.meta.pasal}
+                  {c.meta.chunk ? ` · ${c.meta.chunk}/${c.meta.chunks ?? "?"}` : ""}
+                </Badge>
                 <span className="text-xs text-muted-foreground">{c.meta.judul} · {c.meta.tahun} · {c.meta.unit}</span>
                 <div className="ml-auto flex items-center gap-1">
                   <Tooltip><TooltipTrigger asChild>

@@ -155,10 +155,14 @@ def extractive_answer(question: str, passages: List[str]) -> str:
 
 
 SYSTEM_PROMPT = (
-    "Anda adalah asisten kepatuhan internal (SIKA). Jawab pertanyaan pengguna "
-    "HANYA berdasarkan kutipan pasal yang diberikan. Sertakan rujukan nomor pasal. "
-    "Jika informasi tidak ada pada konteks, katakan tidak ditemukan. Jawab ringkas "
-    "dalam bahasa Indonesia."
+    "Anda adalah asisten kepatuhan internal (SIKA). Jawab HANYA berdasarkan kutipan "
+    "dokumen yang diberikan pada konteks. Sertakan rujukan sumber: nama dokumen dan "
+    "nomor pasal. Jika informasi tidak ada pada konteks, katakan terus terang tidak "
+    "ditemukan dan sebutkan dokumen apa saja yang tersedia pada konteks. "
+    "Format jawaban: teks biasa berbahasa Indonesia, paragraf pendek atau daftar "
+    "dengan tanda '-'. Jangan memakai heading markdown (#), jangan memakai emoji, "
+    "jangan memakai tabel, jangan mengulang pertanyaan pengguna. Jawab ringkas dan "
+    "langsung ke inti."
 )
 
 
@@ -166,12 +170,17 @@ def build_user_prompt(question: str, contexts: List[dict]) -> str:
     blocks = []
     for i, c in enumerate(contexts, 1):
         meta = c.get("meta", {})
-        src = meta.get("sop", "DOKUMEN")
+        src = meta.get("doc_id") or meta.get("sop", "DOKUMEN")
         pasal = meta.get("pasal", "")
-        blocks.append(f"[{i}] {src} {pasal}\n{c.get('text', '').strip()}")
+        chunk = meta.get("chunk")
+        total = meta.get("chunks")
+        loc = f"{pasal}" + (f" (bagian {chunk}/{total})" if chunk else "")
+        blocks.append(f"[{i}] {src} {loc}\n{c.get('text', '').strip()}")
     ctx = "\n\n".join(blocks)
     return (
-        f"Konteks pasal:\n{ctx}\n\n"
+        f"Konteks dokumen:\n{ctx}\n\n"
         f"Pertanyaan: {question}\n\n"
-        f"Jawab berdasarkan konteks di atas dan sebutkan nomor pasal sumbernya."
+        f"Jawab berdasarkan konteks di atas dan sebutkan nama dokumen serta nomor "
+        f"pasal sumbernya. Bila pertanyaan meminta isi sebuah dokumen, rangkum isi "
+        f"potongan-potongan dokumen tersebut secara berurutan."
     )

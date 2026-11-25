@@ -21,6 +21,10 @@ class Embedder:
             from sentence_transformers import SentenceTransformer  # lazy import
 
             self._model = SentenceTransformer(self.model_name, device=self.device)
+            # Batasi ke 256 token (batas MiniLM). Chunking di build_corpus.py sudah
+            # memotong teks di bawah batas ini, jadi tidak ada isi yang hilang
+            # diam-diam karena terpotong model.
+            self._model.max_seq_length = 256
             getter = getattr(self._model, "get_embedding_dimension", None) or \
                 self._model.get_sentence_embedding_dimension
             self._dim = int(getter())

@@ -132,12 +132,52 @@ def gen_filler(n, seed=7):
 
 PASAL_RE = re.compile(r"^(Pasal\s+\d+[A-Za-z]?)\.?\s*(.*)$", re.IGNORECASE)
 
+# --- chunking ---------------------------------------------------------------
+# MiniLM (all-MiniLM-L6-v2) punya batas 256 token. Satu pasal panjang tanpa
+# dipotong hanya akan ter-embed bagian awalnya, sisanya hilang diam-diam.
+# Target ~900 karakter (≈200-230 token) dengan overlap kecil agar konteks
+# antar potongan tidak terputus.
+CHUNK_CHARS = 900
+CHUNK_OVERLAP = 120
+
+
+def _clean_text(s: str) -> str:
+    """Rapikan teks: buang BOM/karakter kontrol, samakan spasi."""
+    s = s.replace("\ufeff", "").replace("\u00a0", " ")
+    s = "".join(ch if (ch in "\n\t" or ord(ch) >= 32) else " " for ch in s)
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
+
+
+def chunk_text(text: str, limit: int = CHUNK_CHARS, overlap: int = CHUNK_OVERLAP):
+    """Pecah teks panjang jadi potongan <= limit karakter di batas kata."""
+    text = _clean_text(text)
+    if len(text) <= limit:
+        return [text] if text else []
+    chunks, start, n = [], 0, len(text)
+    while start < n:
+        end = min(start + limit, n)
+        if end < n:
+            # cari spasi terdekat ke arah belakang agar tidak memotong kata
+            cut = text.rfind(" ", start + int(limit * 0.6), end)
+            if cut > start:
+                end = cut
+        piece = text[start:end].strip()
+        if piece:
+            chunks.append(piece)
+        if end >= n:
+            break
+        start = max(end - overlap, start + 1)
+    return chunks
+
+
 
 def load_markdown_docs(folder: Path):
     docs = []
     for path in sorted(folder.glob("*.md")):
-        lines = path.read_text(encoding="utf-8").splitlines()
-        header = {"sop": path.stem, "judul": "", "tahun": 0, "unit": ""}
+        lines = _clean_text(path.read_text(encoding="utf-8", errors="replace")).splitlines()
+        header = {"sop": path.stem, "doc_id": path.stem, "judul": "", "tahun": 0, "unit": ""}
         pasal = []
         cur_no, cur_text = None, []
 
@@ -150,7 +190,7 @@ def load_markdown_docs(folder: Path):
         for line in lines:
             if line.startswith("# ") and not line.startswith("## "):
                 parts = [p.strip() for p in line[2:].split("|")]
-                if len(parts) >= 1: header["sop"] = parts[0]
+                if len(parts) >= 1 and parts[0]: header["sop"] = parts[0]
                 if len(parts) >= 2: header["judul"] = parts[1]
                 if len(parts) >= 3 and parts[2].isdigit(): header["tahun"] = int(parts[2])
                 if len(parts) >= 4: header["unit"] = parts[3]
@@ -166,11 +206,26 @@ def load_markdown_docs(folder: Path):
 
 
 def build_items(docs):
+    """Ratakan dokumen jadi item retrieval, dengan chunking untuk pasal panjang."""
     items = []
     for d in docs:
+        doc_id = d.get("doc_id") or d.get("sop", "")
         for no, text in d["pasal"]:
-            items.append({"text": text, "meta": {"sop": d.get("sop", ""), "judul": d.get("judul", ""),
-                          "pasal": no, "tahun": d.get("tahun", 0), "unit": d.get("unit", "")}})
+            parts = chunk_text(text)
+            total = len(parts)
+            for ci, part in enumerate(parts, 1):
+                meta = {
+                    "sop": d.get("sop", ""),
+                    "doc_id": doc_id,
+                    "judul": d.get("judul", ""),
+                    "pasal": no,
+                    "tahun": d.get("tahun", 0),
+                    "unit": d.get("unit", ""),
+                }
+                if total > 1:
+                    meta["chunk"] = ci
+                    meta["chunks"] = total
+                items.append({"text": part, "meta": meta})
     return items
 
 

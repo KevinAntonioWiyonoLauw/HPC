@@ -18,7 +18,16 @@ export interface Neighbor {
   dist2: number;
   distance: number;
   text: string;
-  meta: { sop?: string; judul?: string; pasal?: string; tahun?: number; unit?: string };
+  meta: {
+    sop?: string;
+    doc_id?: string;
+    judul?: string;
+    pasal?: string;
+    tahun?: number;
+    unit?: string;
+    chunk?: number;
+    chunks?: number;
+  };
 }
 
 export interface SearchResp {
@@ -26,6 +35,8 @@ export interface SearchResp {
   k: number;
   retrieval_ms: number;
   cached: boolean;
+  match?: "semantic" | "document";
+  doc?: string | null;
   results: Neighbor[];
 }
 
@@ -37,6 +48,8 @@ export interface AskResp {
   cached: boolean;
   latency: { embed_ms: number; retrieval_ms: number; llm_ms: number; total_ms: number };
   llm_status: string;
+  match?: "semantic" | "document";
+  doc?: string | null;
 }
 
 export interface BenchResp {
@@ -72,6 +85,8 @@ export interface DocItem {
   pasal: number;
   size: number;
   modified: number;
+  indexed?: boolean;
+  chunks?: number;
 }
 
 export interface DocsList {
@@ -191,11 +206,17 @@ export const api = {
   models: () => j<{ models: string[]; current: string }>("/models"),
   documents: () => j<DocsList>("/documents"),
   uploadDocument: (payload: { name: string; content: string; title?: string; year?: string; unit?: string }) =>
-    j<{ ok: boolean; document: DocItem }>("/documents", { method: "POST", body: JSON.stringify(payload) }),
+    j<{ ok: boolean; document: DocItem; reindex?: { ok: boolean; started: boolean; filler?: number } }>(
+      "/documents",
+      { method: "POST", body: JSON.stringify(payload) }
+    ),
   deleteDocument: (name: string) =>
-    j<{ ok: boolean; deleted: string }>(`/documents/${encodeURIComponent(name)}`, { method: "DELETE" }),
+    j<{ ok: boolean; deleted: string; reindex?: { ok: boolean; started: boolean; filler?: number } }>(
+      `/documents/${encodeURIComponent(name)}`,
+      { method: "DELETE" }
+    ),
   reindexDocuments: () =>
-    j<{ ok: boolean; started: boolean }>("/documents/reindex", { method: "POST" }),
+    j<{ ok: boolean; started: boolean; filler?: number; reason?: string }>("/documents/reindex", { method: "POST" }),
   reindexStatus: () => j<ReindexStatus>("/documents/reindex/status"),
   cacheStats: () => j<CacheStats>("/cache/stats"),
   clearCache: () =>
